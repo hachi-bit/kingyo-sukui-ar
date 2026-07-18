@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>ARデジタル金魚すくい - プロトタイプ1</title>
 <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js" async crossorigin="anonymous" data-preload-chunks="slam"></script>
+<script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <style>
   html, body {
@@ -137,46 +138,66 @@
     initEngineCheckAndStart();
   });
 
-  function initEngineCheckAndStart() {
-    if (window.XR8) {
-      log('XR8はすでにグローバルに存在');
+  let engineReady = false;
+  let extrasReady = false;
+
+  function tryStart() {
+    if (engineReady && extrasReady) {
       onxrloaded();
-    } else {
-      log('xrloadedイベント待機開始');
-      setStatus('8th Wallエンジン読み込み中...');
-      window.addEventListener('xrloaded', onxrloaded);
-      // タイムアウト検知（10秒読み込めなければCDN/権限エラーの可能性）
-      setTimeout(() => {
-        if (!window.XR8) {
-          setStatus('エンジン読み込みタイムアウト。CDNまたはネットワークを確認してください。', 'ng');
-          log('10秒経過してもXR8が定義されず。CDN到達性の問題の可能性あり。');
-        }
-      }, 10000);
     }
   }
 
+  function initEngineCheckAndStart() {
+    if (window.XR8) {
+      log('XR8はすでにグローバルに存在');
+      engineReady = true;
+    } else {
+      log('xrloadedイベント待機開始');
+      setStatus('8th Wallエンジン読み込み中...');
+      window.addEventListener('xrloaded', () => {
+        log('xrloadedイベント発火');
+        engineReady = true;
+        tryStart();
+      });
+    }
+
+    if (window.XRExtras) {
+      log('XRExtrasはすでにグローバルに存在');
+      extrasReady = true;
+    } else {
+      window.addEventListener('xrextrasloaded', () => {
+        log('xrextrasloadedイベント発火');
+        extrasReady = true;
+        tryStart();
+      });
+    }
+
+    tryStart();
+
+    setTimeout(() => {
+      if (!engineReady || !extrasReady) {
+        setStatus('エンジン読み込みタイムアウト。CDNまたはネットワークを確認してください。', 'ng');
+        log(`10秒経過。XR8:${engineReady} XRExtras:${extrasReady}`);
+      }
+    }, 10000);
+  }
+
   function onxrloaded() {
-    log('xrloadedイベント発火。XR8オブジェクト確認OK');
+    log('エンジン一式の読み込み確認OK');
     setStatus('8th Wallエンジン読み込み成功', 'ok');
 
     XR8.addCameraPipelineModules([
       XR8.GlTextureRenderer.pipelineModule(),
       XR8.Threejs.pipelineModule(),
       XR8.XrController.pipelineModule(),
+      XRExtras.FullWindowCanvas.pipelineModule(),
+      XRExtras.Loading.pipelineModule(),
+      XRExtras.RuntimeError.pipelineModule(),
       poiScenePipelineModule(),
     ]);
 
-    document.body.insertAdjacentHTML(
-      'beforeend',
-      '<div id="camerafeed"></div>'
-    );
     const canvas = document.createElement('canvas');
-    canvas.id = 'camerafeed-canvas';
-    canvas.style.position = 'absolute';
-    canvas.style.top = '0';
-    canvas.style.left = '0';
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
+    canvas.id = 'camerafeed';
     document.body.appendChild(canvas);
 
     log('XR8.run() 呼び出し');
