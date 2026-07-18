@@ -206,13 +206,7 @@
 
   // --- カメラに固定されたポイ（すくい網）を表示するThree.jsパイプライン ---
   function poiScenePipelineModule() {
-    let scene, camera, renderer, poiGroup;
-
-    const initXrScene = ({ scene: s, camera: c, renderer: r }) => {
-      scene = s;
-      camera = c;
-      renderer = r;
-
+    const initXrScene = ({ scene, camera }) => {
       // ライト
       const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
       scene.add(hemi);
@@ -221,7 +215,7 @@
       scene.add(dir);
 
       // ポイ（すくい網）: 輪っか + 紙面 + 持ち手
-      poiGroup = new THREE.Group();
+      const poiGroup = new THREE.Group();
 
       // 輪っか
       const ringGeo = new THREE.TorusGeometry(0.08, 0.006, 12, 32);
@@ -256,10 +250,6 @@
       poiGroup.rotation.x = -0.15;
 
       camera.add(poiGroup);
-      // カメラ自体はXR8がシーンに追加してくれているので、ここではchild化するだけでOK
-      if (!scene.children.includes(camera)) {
-        scene.add(camera);
-      }
 
       log('ポイ(すくい網)オブジェクトをカメラ子要素として配置完了');
       setStatus('ポイ表示中 / スマホを動かして確認してください', 'ok');
@@ -267,9 +257,15 @@
 
     return {
       name: 'poiscene',
-      onStart: (args) => initXrScene(args),
-      onUpdate: () => {
-        // 将来: ここでジャイロの傾きに応じたポイの微調整などを行う
+      onStart: () => {
+        const { scene, camera } = XR8.Threejs.xrScene();
+        initXrScene({ scene, camera });
+
+        // 6DoFのカメラ位置・向きをXRコントローラに同期
+        XR8.XrController.updateCameraProjectionMatrix({
+          origin: camera.position,
+          facing: camera.quaternion,
+        });
       },
     };
   }
