@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>ARデジタル金魚すくい - プロトタイプ1</title>
+<script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js" async crossorigin="anonymous" data-preload-chunks="slam"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
+  }
+  #camerafeed {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+  #ui {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 10;
+    color: #fff;
+    text-align: center;
+    pointer-events: none;
+  }
+  #status {
+    margin-top: env(safe-area-inset-top, 12px);
+    padding: 10px 16px;
+    display: inline-block;
+    background: rgba(0,0,0,0.55);
+    border-radius: 999px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  #status.ok { color: #7CFC9A; }
+  #status.ng { color: #FF6B6B; }
+  #startOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: linear-gradient(160deg, #0b3d5c, #0a1f33);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    text-align: center;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+  #startOverlay h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+  }
+  #startOverlay p {
+    font-size: 13px;
+    opacity: 0.8;
+    margin: 0;
+    max-width: 320px;
+    line-height: 1.6;
+  }
+  #startBtn {
+    margin-top: 8px;
+    padding: 14px 40px;
+    font-size: 16px;
+    border: none;
+    border-radius: 999px;
+    background: #ffb703;
+    color: #1a1a1a;
+    font-weight: bold;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  #debugPanel {
+    position: fixed;
+    bottom: env(safe-area-inset-bottom, 12px);
+    left: 12px;
+    right: 12px;
+    z-index: 10;
+    background: rgba(0,0,0,0.6);
+    color: #a0ffb0;
+    font-size: 11px;
+    font-family: monospace;
+    padding: 8px 10px;
+    border-radius: 8px;
+    max-height: 90px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<div id="startOverlay">
+  <h1>🎏 ARデジタル金魚すくい</h1>
+  <p>プロトタイプ1: 8th Wallエンジンの読み込みと、カメラに固定されたポイ（すくい網）の表示を確認します。カメラの許可を求められたら「許可」を選んでください。</p>
+  <button id="startBtn">ARをはじめる</button>
+</div>
+
+<div id="ui">
+  <div id="status">エンジン読み込み待機中...</div>
+</div>
+
+<div id="debugPanel">ログ待機中...</div>
+
+<script>
+  const debugPanel = document.getElementById('debugPanel');
+  const statusEl = document.getElementById('status');
+  const logLines = [];
+  function log(msg) {
+    const t = new Date().toLocaleTimeString('ja-JP');
+    logLines.push(`[${t}] ${msg}`);
+    if (logLines.length > 8) logLines.shift();
+    debugPanel.textContent = logLines.join('\n');
+    console.log(msg);
+  }
+  function setStatus(msg, cls) {
+    statusEl.textContent = msg;
+    statusEl.className = cls || '';
+  }
+
+  log('スクリプト評価開始');
+
+  document.getElementById('startBtn').addEventListener('click', () => {
+    document.getElementById('startOverlay').style.display = 'none';
+    initEngineCheckAndStart();
+  });
+
+  function initEngineCheckAndStart() {
+    if (window.XR8) {
+      log('XR8はすでにグローバルに存在');
+      onxrloaded();
+    } else {
+      log('xrloadedイベント待機開始');
+      setStatus('8th Wallエンジン読み込み中...');
+      window.addEventListener('xrloaded', onxrloaded);
+      // タイムアウト検知（10秒読み込めなければCDN/権限エラーの可能性）
+      setTimeout(() => {
+        if (!window.XR8) {
+          setStatus('エンジン読み込みタイムアウト。CDNまたはネットワークを確認してください。', 'ng');
+          log('10秒経過してもXR8が定義されず。CDN到達性の問題の可能性あり。');
+        }
+      }, 10000);
+    }
+  }
+
+  function onxrloaded() {
+    log('xrloadedイベント発火。XR8オブジェクト確認OK');
+    setStatus('8th Wallエンジン読み込み成功', 'ok');
+
+    XR8.addCameraPipelineModules([
+      XR8.GlTextureRenderer.pipelineModule(),
+      XR8.Threejs.pipelineModule(),
+      XR8.XrController.pipelineModule(),
+      poiScenePipelineModule(),
+    ]);
+
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<div id="camerafeed"></div>'
+    );
+    const canvas = document.createElement('canvas');
+    canvas.id = 'camerafeed-canvas';
+    canvas.style.position = 'absolute';
+    canvas.style.top = '0';
+    canvas.style.left = '0';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    document.body.appendChild(canvas);
+
+    log('XR8.run() 呼び出し');
+    XR8.run({ canvas, allowedDevices: XR8.XrConfig.device().ANY });
+  }
+
+  // --- カメラに固定されたポイ（すくい網）を表示するThree.jsパイプライン ---
+  function poiScenePipelineModule() {
+    let scene, camera, renderer, poiGroup;
+
+    const initXrScene = ({ scene: s, camera: c, renderer: r }) => {
+      scene = s;
+      camera = c;
+      renderer = r;
+
+      // ライト
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+      scene.add(hemi);
+      const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+      dir.position.set(0.5, 1, 0.3);
+      scene.add(dir);
+
+      // ポイ（すくい網）: 輪っか + 紙面 + 持ち手
+      poiGroup = new THREE.Group();
+
+      // 輪っか
+      const ringGeo = new THREE.TorusGeometry(0.08, 0.006, 12, 32);
+      const ringMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.5 });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.rotation.x = Math.PI / 2.2;
+      poiGroup.add(ring);
+
+      // 紙面（すくう部分、半透明の和紙っぽい円盤）
+      const paperGeo = new THREE.CircleGeometry(0.075, 32);
+      const paperMat = new THREE.MeshStandardMaterial({
+        color: 0xfff6e0,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+      });
+      const paper = new THREE.Mesh(paperGeo, paperMat);
+      paper.rotation.x = Math.PI / 2.2;
+      paper.position.y = -0.005;
+      poiGroup.add(paper);
+
+      // 持ち手
+      const handleGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.22, 8);
+      const handleMat = new THREE.MeshStandardMaterial({ color: 0x8a5a2b });
+      const handle = new THREE.Mesh(handleGeo, handleMat);
+      handle.position.set(0, -0.13, 0.04);
+      handle.rotation.x = 0.3;
+      poiGroup.add(handle);
+
+      // カメラの少し下・少し奥（画面の下側に、金魚より手前に見える位置）に固定
+      poiGroup.position.set(0, -0.18, -0.45);
+      poiGroup.rotation.x = -0.15;
+
+      camera.add(poiGroup);
+      // カメラ自体はXR8がシーンに追加してくれているので、ここではchild化するだけでOK
+      if (!scene.children.includes(camera)) {
+        scene.add(camera);
+      }
+
+      log('ポイ(すくい網)オブジェクトをカメラ子要素として配置完了');
+      setStatus('ポイ表示中 / スマホを動かして確認してください', 'ok');
+    };
+
+    return {
+      name: 'poiscene',
+      onStart: (args) => initXrScene(args),
+      onUpdate: () => {
+        // 将来: ここでジャイロの傾きに応じたポイの微調整などを行う
+      },
+    };
+  }
+
+  window.addEventListener('error', (e) => {
+    log('JSエラー: ' + e.message);
+    setStatus('エラー発生。デバッグログを確認してください', 'ng');
+  });
+</script>
+
+</body>
+</html>
