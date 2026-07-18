@@ -1064,6 +1064,22 @@ function startMarkerCatchMode() {
 
   async function boot() {
     try {
+      // まずAR.js抜きで、素のgetUserMediaが通るか単独チェックする
+      // (ブラウザの許可自体の問題か、AR.js内部の問題かを切り分けるため)
+      log('カメラ許可を単独テスト中...');
+      try {
+        const testStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+        });
+        log('カメラ許可OK(単独テスト成功)。トラック数=' + testStream.getVideoTracks().length);
+        testStream.getTracks().forEach(t => t.stop());
+        await new Promise(r => setTimeout(r, 300)); // 解放直後の競合を避ける小休止
+      } catch (camErr) {
+        log('カメラ許可NG(単独テスト失敗): ' + camErr.name + ' ' + camErr.message);
+        setStatusIfExists('カメラ許可が得られませんでした: ' + camErr.name);
+        return;
+      }
+
       log('マーカーデータ生成開始');
       const defs = await getMarkerDefs();
       log('マーカーデータ生成OK。A-Frame読み込み開始');
@@ -1072,9 +1088,27 @@ function startMarkerCatchMode() {
       await loadScript('https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.7/aframe/build/aframe-ar.js');
       log('AR.js読み込みOK。シーン構築');
       buildScene(defs);
+
+      // AR.js内部のvideo要素が実際に出来て再生されているか、数秒おきに確認する
+      let checkCount = 0;
+      const videoCheckTimer = setInterval(() => {
+        checkCount++;
+        const v = document.querySelector('#arjs-video, video');
+        if (v) {
+          log(`video要素チェック#${checkCount}: readyState=${v.readyState} 幅=${v.videoWidth} 高さ=${v.videoHeight} paused=${v.paused}`);
+        } else {
+          log(`video要素チェック#${checkCount}: video要素が見つからない`);
+        }
+        if (checkCount >= 5) clearInterval(videoCheckTimer);
+      }, 2000);
     } catch (e) {
       log('マーカーAR初期化エラー: ' + e.message);
     }
+  }
+
+  function setStatusIfExists(msg) {
+    const el = document.getElementById('placeHint');
+    if (el) { el.textContent = msg; el.classList.remove('hidden'); }
   }
 
   function buildScene(defs) {
