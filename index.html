@@ -497,30 +497,30 @@ function goldfishGamePipelineModule() {
   function setupPoi() {
     poiGroup = new THREE.Group();
 
-    const ringGeo = new THREE.TorusGeometry(0.08, 0.006, 12, 32);
+    // リング・紙面は回転させず、スマホ画面と平行な板として見えるようにする
+    const ringGeo = new THREE.TorusGeometry(0.07, 0.005, 12, 32);
     const ringMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.5 });
     const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.rotation.x = Math.PI / 2.2;
     poiGroup.add(ring);
 
-    const paperGeo = new THREE.CircleGeometry(0.075, 32);
+    const paperGeo = new THREE.CircleGeometry(0.065, 32);
     const paperMat = new THREE.MeshStandardMaterial({
       color: 0xfff6e0, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
     });
     poiPaper = new THREE.Mesh(paperGeo, paperMat);
-    poiPaper.rotation.x = Math.PI / 2.2;
-    poiPaper.position.y = -0.005;
+    poiPaper.position.z = -0.004;
     poiGroup.add(poiPaper);
 
-    const handleGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.22, 8);
+    // 持ち手はリングの下からプレイヤー側(カメラ側)に伸びる形に
+    const handleGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.2, 8);
     const handleMat = new THREE.MeshStandardMaterial({ color: 0x8a5a2b });
     const handle = new THREE.Mesh(handleGeo, handleMat);
-    handle.position.set(0, -0.13, 0.04);
-    handle.rotation.x = 0.3;
+    handle.rotation.x = Math.PI / 2;
+    handle.position.set(0, -0.075, 0.11);
     poiGroup.add(handle);
 
-    poiGroup.position.set(0, -0.18, -0.45);
-    poiGroup.rotation.x = -0.15;
+    // スマホの少し先・少し下、画面とほぼ平行に固定（地面から浮くよう高さを確保）
+    poiGroup.position.set(0, -0.14, -0.35);
     camera.add(poiGroup);
   }
 
@@ -560,7 +560,7 @@ function goldfishGamePipelineModule() {
 
   function spawnFreeFish() {
     const type = pickRandomFishType();
-    const mesh = createFishMesh(type, 0.06 + Math.random() * 0.02);
+    const mesh = createFishMesh(type, 0.032 + Math.random() * 0.012);
     anchorGroup.add(mesh);
     freeFish.push({
       mesh, type,
@@ -573,7 +573,7 @@ function goldfishGamePipelineModule() {
   }
 
   function spawnSummonFish() {
-    const mesh = createFishMesh(summonFishType, 0.11);
+    const mesh = createFishMesh(summonFishType, 0.08);
     anchorGroup.add(mesh);
     freeFish.push({
       mesh, type: summonFishType,
@@ -595,7 +595,7 @@ function goldfishGamePipelineModule() {
     fishEntry.mesh.getWorldPosition(worldPos);
     anchorGroup.remove(fishEntry.mesh);
     poiGroup.add(fishEntry.mesh);
-    fishEntry.mesh.position.set(0, 0.01, 0);
+    fishEntry.mesh.position.set(0, 0, -0.004);
 
     let buffed = false;
     const autoBuff = document.getElementById('autoBuffCheckbox').checked;
@@ -766,7 +766,7 @@ function goldfishGamePipelineModule() {
           heldFish.balance.x *= scale;
           heldFish.balance.y *= scale;
         }
-        heldFish.mesh.position.set(heldFish.balance.x, 0.01, heldFish.balance.y);
+        heldFish.mesh.position.set(heldFish.balance.x, heldFish.balance.y, -0.004);
 
         if (mag < holdR) {
           heldFish.holdTimer += dt;
