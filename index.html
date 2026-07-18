@@ -488,11 +488,15 @@ function goldfishGamePipelineModule() {
   let roundActive = false;
   const caughtThisRound = {};
 
-  const CATCH_RADIUS = 0.09;     // ポイに触れたと判定する距離
-  const HOLD_RADIUS = 0.045;     // これより中心に近ければキープ扱い
-  const ESCAPE_RADIUS = 0.085;   // これを超えたら逃げられる
+  const CATCH_RADIUS = 0.08;     // ポイに触れたと判定する距離
+  const HOLD_RADIUS = 0.025;     // これより中心に近ければキープ扱い
+  const ESCAPE_RADIUS = 0.058;   // これを超えたら逃げられる（紙面の縁あたり）
   const REQUIRED_HOLD = 1.1;     // 何秒キープしたら成功か
-  const TILT_GAIN = 0.0026;
+  const LIFT_DURATION = 0.5;     // 捕捉→水面から引き上げるまでの猶予(秒)
+  const TILT_ACCEL = 0.05;       // 傾きが与える加速度の強さ
+  const WANDER_ACCEL_BASE = 0.3; // 金魚の暴れが与える加速度の強さ
+  const FRICTION_PER_SEC = 3.2;  // 摩擦の強さ(大きいほどすぐ減速する)
+  const MAX_SPEED = 0.22;        // 金魚が出せる最大速度
 
   function setupPoi() {
     poiGroup = new THREE.Group();
@@ -519,8 +523,8 @@ function goldfishGamePipelineModule() {
     handle.position.set(0, -0.075, 0.11);
     poiGroup.add(handle);
 
-    // スマホの少し先・少し下、画面とほぼ平行に固定（地面から浮くよう高さを確保）
-    poiGroup.position.set(0, -0.14, -0.35);
+    // スマホの少し上・少し先、画面とほぼ平行に固定
+    poiGroup.position.set(0, 0.06, -0.3);
     camera.add(poiGroup);
   }
 
@@ -560,7 +564,7 @@ function goldfishGamePipelineModule() {
 
   function spawnFreeFish() {
     const type = pickRandomFishType();
-    const mesh = createFishMesh(type, 0.032 + Math.random() * 0.012);
+    const mesh = createFishMesh(type, 0.014 + Math.random() * 0.006);
     anchorGroup.add(mesh);
     freeFish.push({
       mesh, type,
@@ -595,7 +599,7 @@ function goldfishGamePipelineModule() {
     fishEntry.mesh.getWorldPosition(worldPos);
     anchorGroup.remove(fishEntry.mesh);
     poiGroup.add(fishEntry.mesh);
-    fishEntry.mesh.position.set(0, 0, -0.004);
+    fishEntry.mesh.position.set(0, -0.05, -0.004);
 
     let buffed = false;
     const autoBuff = document.getElementById('autoBuffCheckbox').checked;
@@ -607,8 +611,11 @@ function goldfishGamePipelineModule() {
     heldFish = {
       mesh: fishEntry.mesh,
       type: fishEntry.type,
+      state: 'lifting',       // 'lifting' -> 'balancing'
+      liftTimer: 0,
       holdTimer: 0,
       balance: { x: 0, y: 0 },
+      velocity: { x: 0, y: 0 },
       baseline: { beta: latestOrientation.beta, gamma: latestOrientation.gamma },
       wander: { x: 0, y: 0 },
       wanderTimer: 0,
@@ -740,44 +747,76 @@ function goldfishGamePipelineModule() {
         }
       }
 
-      // stage2: ポイの上でのバランス勝負
+      // stage2: 引き上げ猶予 → ポイの上でのバランス勝負
       if (heldFish) {
-        heldFish.wanderTimer -= dt;
-        if (heldFish.wanderTimer <= 0) {
-          heldFish.wanderTimer = 0.35 + Math.random() * 0.3;
-          const wildness = heldFish.type.wildness;
-          heldFish.wander.x = (Math.random() - 0.5) * 0.06 * wildness;
-          heldFish.wander.y = (Math.random() - 0.5) * 0.06 * wildness;
-        }
-        const delta = {
-          beta: latestOrientation.beta - heldFish.baseline.beta,
-          gamma: latestOrientation.gamma - heldFish.baseline.gamma,
-        };
-        heldFish.balance.x += (heldFish.wander.x + delta.gamma * TILT_GAIN) * dt * 10;
-        heldFish.balance.y += (heldFish.wander.y + delta.beta * TILT_GAIN) * dt * 10;
+        if (heldFish.state === 'lifting') {
+          heldFish.liftTimer += dt;
+          const p = Math.min(1, heldFish.liftTimer / LIFT_DURATION);
+          const eased = 1 - Math.pow(1 - p, 2); // ease-out
+          const y = -0.05 + 0.05 * eased;
+          heldFish.mesh.position.set(0, y, -0.004);
+          if (p >= 1) {
+            heldFish.state = 'balancing';
+            // 引き上げ完了時点をあらためて基準の傾きにする(不意打ちで即失敗しないように)
+            heldFish.baseline = { beta: latestOrientation.beta, gamma: latestOrientation.gamma };
+          }
+        } else if (heldFish.state === 'balancing') {
+          heldFish.wanderTimer -= dt;
+          if (heldFish.wanderTimer <= 0) {
+            heldFish.wanderTimer = 0.4 + Math.random() * 0.35;
+            const wildness = heldFish.type.wildness;
+            heldFish.wander.x = (Math.random() - 0.5) * WANDER_ACCEL_BASE * wildness;
+            heldFish.wander.y = (Math.random() - 0.5) * WANDER_ACCEL_BASE * wildness;
+          }
+          const delta = {
+            beta: latestOrientation.beta - heldFish.baseline.beta,
+            gamma: latestOrientation.gamma - heldFish.baseline.gamma,
+          };
 
-        const holdR = HOLD_RADIUS * (heldFish.buffed ? 1.4 : 1);
-        const escR = ESCAPE_RADIUS * (heldFish.buffed ? 1.25 : 1);
-        const reqHold = REQUIRED_HOLD * (heldFish.buffed ? 0.8 : 1);
+          // 傾き入力と金魚の暴れを「加速度」として速度に加える
+          const accelX = heldFish.wander.x + delta.gamma * TILT_ACCEL;
+          const accelY = heldFish.wander.y + delta.beta * TILT_ACCEL;
+          heldFish.velocity.x += accelX * dt;
+          heldFish.velocity.y += accelY * dt;
 
-        const mag = Math.hypot(heldFish.balance.x, heldFish.balance.y);
-        if (mag > escR * 1.4) {
-          const scale = (escR * 1.4) / mag;
-          heldFish.balance.x *= scale;
-          heldFish.balance.y *= scale;
-        }
-        heldFish.mesh.position.set(heldFish.balance.x, heldFish.balance.y, -0.004);
+          // 摩擦(指数減衰)で速度を減らす。これが「重さ」「粘り」を生む
+          const damping = Math.exp(-FRICTION_PER_SEC * dt);
+          heldFish.velocity.x *= damping;
+          heldFish.velocity.y *= damping;
 
-        if (mag < holdR) {
-          heldFish.holdTimer += dt;
-        } else {
-          heldFish.holdTimer = Math.max(0, heldFish.holdTimer - dt * 0.6);
-        }
+          // 最大速度でクランプ(無限に加速しないように)
+          const speed = Math.hypot(heldFish.velocity.x, heldFish.velocity.y);
+          if (speed > MAX_SPEED) {
+            heldFish.velocity.x *= MAX_SPEED / speed;
+            heldFish.velocity.y *= MAX_SPEED / speed;
+          }
 
-        if (heldFish.holdTimer >= reqHold) {
-          catchSuccess();
-        } else if (mag > escR) {
-          catchFail();
+          heldFish.balance.x += heldFish.velocity.x * dt;
+          heldFish.balance.y += heldFish.velocity.y * dt;
+
+          const holdR = HOLD_RADIUS * (heldFish.buffed ? 1.4 : 1);
+          const escR = ESCAPE_RADIUS * (heldFish.buffed ? 1.25 : 1);
+          const reqHold = REQUIRED_HOLD * (heldFish.buffed ? 0.8 : 1);
+
+          const mag = Math.hypot(heldFish.balance.x, heldFish.balance.y);
+          if (mag > escR * 1.4) {
+            const scale = (escR * 1.4) / mag;
+            heldFish.balance.x *= scale;
+            heldFish.balance.y *= scale;
+          }
+          heldFish.mesh.position.set(heldFish.balance.x, heldFish.balance.y, -0.004);
+
+          if (mag < holdR) {
+            heldFish.holdTimer += dt;
+          } else {
+            heldFish.holdTimer = Math.max(0, heldFish.holdTimer - dt * 0.6);
+          }
+
+          if (heldFish.holdTimer >= reqHold) {
+            catchSuccess();
+          } else if (mag > escR) {
+            catchFail();
+          }
         }
       }
 
