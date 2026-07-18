@@ -1145,17 +1145,15 @@ function startMarkerCatchMode() {
       `smooth="true" smoothCount="6" smoothTolerance="0.01" smoothThreshold="5"></a-marker>`
     )).join('');
 
-    // AR.jsは内部の投影計算で解像度を明示的に指定しないと
-    // 縦画面でも横向き(640x480)前提のまま計算してしまい、3Dオブジェクトが縦に伸びる。
-    // 画面の向きに応じて縦横を明示的に教えてやる。
-    const isPortrait = window.innerHeight >= window.innerWidth;
-    const srcW = isPortrait ? 480 : 640;
-    const srcH = isPortrait ? 640 : 480;
-    log(`画面向き判定: ${isPortrait ? '縦' : '横'} (source ${srcW}x${srcH})`);
+    // カメラは(スマホの向きに関わらず)常に640x480の横向きでしか映像を出さない端末が多く、
+    // AR.js自身がその横向き映像を縦画面用に回転させて表示する仕組みを持っている。
+    // こちらで縦横を入れ替えて指定すると、その回転処理と噛み合わずに歪んでしまうため、
+    // 常にAR.js標準の640x480のままにして、回転はAR.js側の処理に任せる。
+    log('AR.js標準の解像度(640x480)のまま初期化。回転はAR.js側に任せる');
 
     wrap.innerHTML = `
       <a-scene id="arjsScene" embedded
-        arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono; sourceWidth: ${srcW}; sourceHeight: ${srcH}; displayWidth: ${srcW}; displayHeight: ${srcH};"
+        arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono;"
         vr-mode-ui="enabled: false" renderer="antialias: true; alpha: true">
         ${markersHtml}
         <a-entity camera></a-entity>
@@ -1182,6 +1180,13 @@ function startMarkerCatchMode() {
 
       setupPoi();
       requestAnimationFrame(loop);
+
+      // AR.jsが最終的な画面サイズを掴めていないケースへの保険。
+      // 少し待ってからresizeを強制発火し、AR.js内部のサイズ再計算を促す
+      setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+        log(`resize強制発火。canvas実サイズ=${document.querySelector('#arjsWrap canvas')?.width}x${document.querySelector('#arjsWrap canvas')?.height}`);
+      }, 600);
     });
   }
 
