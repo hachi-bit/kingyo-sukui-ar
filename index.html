@@ -15,7 +15,7 @@
     -webkit-user-select: none; user-select: none;
   }
   #camerafeed { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-  #arjsWrap, #arjsWrap > a-scene {
+  #arjsWrap {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;
   }
   .a-enter-vr, .a-enter-ar { display: none !important; }
@@ -1095,7 +1095,8 @@ function startMarkerCatchMode() {
         checkCount++;
         const v = document.querySelector('#arjs-video, video');
         if (v) {
-          log(`video要素チェック#${checkCount}: readyState=${v.readyState} 幅=${v.videoWidth} 高さ=${v.videoHeight} paused=${v.paused}`);
+          const cs = getComputedStyle(v);
+          log(`video要素チェック#${checkCount}: readyState=${v.readyState} 幅=${v.videoWidth} 高さ=${v.videoHeight} paused=${v.paused} display=${cs.display} visibility=${cs.visibility} opacity=${cs.opacity} z=${cs.zIndex} pos=${cs.position}`);
         } else {
           log(`video要素チェック#${checkCount}: video要素が見つからない`);
         }
