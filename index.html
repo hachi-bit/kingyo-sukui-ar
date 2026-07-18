@@ -10,7 +10,7 @@
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
-    overflow: hidden; background: #0a1f33;
+    overflow: hidden;
     font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
     -webkit-user-select: none; user-select: none;
   }
@@ -72,8 +72,15 @@
   }
   #debugPanel {
     position: fixed; bottom: env(safe-area-inset-bottom, 6px); left: 8px; right: 8px; z-index: 50;
-    background: rgba(0,0,0,0.55); color: #a0ffb0; font-size: 10px; font-family: monospace;
-    padding: 6px 8px; border-radius: 8px; max-height: 64px; overflow-y: auto; white-space: pre-wrap; line-height: 1.4;
+    background: rgba(0,0,0,0.7); color: #a0ffb0; font-size: 10px; font-family: monospace;
+    border-radius: 8px; max-height: 30vh; display: flex; flex-direction: column;
+  }
+  #debugLogText {
+    padding: 6px 8px; overflow-y: auto; white-space: pre-wrap; line-height: 1.4; flex: 1;
+  }
+  #debugCopyBtn {
+    margin: 4px 6px 6px; padding: 4px 10px; font-size: 10px; border: none; border-radius: 6px;
+    background: #2a6b4a; color: #cfffe0; align-self: flex-end;
   }
 
   /* 終了画面 */
@@ -141,7 +148,10 @@
 <div id="catchBanner"></div>
 <div id="liftBanner" class="hidden">引き上げろ！</div>
 <div id="placeHint" class="hidden">床やたらいをタップして金魚すくいスポットを置いてね</div>
-<div id="debugPanel">ログ待機中...</div>
+<div id="debugPanel">
+  <div id="debugLogText">ログ待機中...</div>
+  <button id="debugCopyBtn">ログ全部をコピー</button>
+</div>
 
 <!-- 結果画面 -->
 <div id="resultScreen" class="screen hidden">
@@ -241,15 +251,30 @@ function refreshCoinDisplays() {
 /* =========================================================
    共通ログ・ステータス
 ========================================================= */
-const debugPanel = document.getElementById('debugPanel');
+const debugLogText = document.getElementById('debugLogText');
 const logLines = [];
 function log(msg) {
   const t = new Date().toLocaleTimeString('ja-JP');
   logLines.push(`[${t}] ${msg}`);
-  if (logLines.length > 6) logLines.shift();
-  debugPanel.textContent = logLines.join('\n');
+  debugLogText.textContent = logLines.join('\n');
+  debugLogText.scrollTop = debugLogText.scrollHeight; // 常に最新行が見える位置へ自動スクロール
   console.log(msg);
 }
+document.getElementById('debugCopyBtn').addEventListener('click', () => {
+  const text = logLines.join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('debugCopyBtn');
+      const original = btn.textContent;
+      btn.textContent = 'コピーしたで！';
+      setTimeout(() => { btn.textContent = original; }, 1200);
+    }).catch(() => {
+      window.prompt('コピーできんかったから、これを手動で選択してコピーしてや', text);
+    });
+  } else {
+    window.prompt('これを手動で選択してコピーしてや', text);
+  }
+});
 
 /* =========================================================
    画面切り替え
