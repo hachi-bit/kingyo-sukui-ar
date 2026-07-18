@@ -1185,9 +1185,21 @@ function startMarkerCatchMode() {
       // 少し待ってからresizeを強制発火し、AR.js内部のサイズ再計算を促す
       setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
-        log(`resize強制発火。canvas実サイズ=${document.querySelector('#arjsWrap canvas')?.width}x${document.querySelector('#arjsWrap canvas')?.height}`);
+        forceCorrectCameraAspect();
+        log(`resize強制発火+アスペクト補正。canvas実サイズ=${document.querySelector('#arjsWrap canvas')?.width}x${document.querySelector('#arjsWrap canvas')?.height}`);
       }, 600);
     });
+  }
+
+  function forceCorrectCameraAspect() {
+    if (!camera) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    // AR.js独自のキャリブレーション済み投影行列を、実画面サイズに合った
+    // 標準のThree.js透視投影に上書きする(ARとしての精度は落ちるが、歪みは消える)
+    camera.aspect = w / h;
+    if (!camera.fov) camera.fov = 60;
+    camera.updateProjectionMatrix();
   }
 
   function setupPoi() {
@@ -1382,6 +1394,7 @@ function startMarkerCatchMode() {
     const dt = Math.min(clock.getDelta(), 0.1);
     const t = clock.elapsedTime;
 
+    forceCorrectCameraAspect(); // AR.jsに毎フレーム上書きされても即座に直るようにする保険
     updateAnchorFromMarkers();
     if (!placed) return;
 
