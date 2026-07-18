@@ -1144,9 +1144,18 @@ function startMarkerCatchMode() {
       `<a-marker type="pattern" patternUrl="${d.patternUrl}" id="marker${i + 1}" ` +
       `smooth="true" smoothCount="6" smoothTolerance="0.01" smoothThreshold="5"></a-marker>`
     )).join('');
+
+    // AR.jsは内部の投影計算で解像度を明示的に指定しないと
+    // 縦画面でも横向き(640x480)前提のまま計算してしまい、3Dオブジェクトが縦に伸びる。
+    // 画面の向きに応じて縦横を明示的に教えてやる。
+    const isPortrait = window.innerHeight >= window.innerWidth;
+    const srcW = isPortrait ? 480 : 640;
+    const srcH = isPortrait ? 640 : 480;
+    log(`画面向き判定: ${isPortrait ? '縦' : '横'} (source ${srcW}x${srcH})`);
+
     wrap.innerHTML = `
       <a-scene id="arjsScene" embedded
-        arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono;"
+        arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono; sourceWidth: ${srcW}; sourceHeight: ${srcH}; displayWidth: ${srcW}; displayHeight: ${srcH};"
         vr-mode-ui="enabled: false" renderer="antialias: true; alpha: true">
         ${markersHtml}
         <a-entity camera></a-entity>
