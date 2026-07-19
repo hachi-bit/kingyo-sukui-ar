@@ -1,212 +1,637 @@
 <!doctype html>
-<html>
+<html lang="ja">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>鉢-bit AR (地面認識版)</title>
-  <style>
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
-    #camerafeed { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-    #hint {
-      position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
-      background: rgba(0,0,0,0.6); color: #fff; padding: 10px 18px; border-radius: 20px;
-      font: 14px/1.4 sans-serif; z-index: 9998; text-align: center; pointer-events: none;
-      transition: opacity 0.3s;
-    }
-    #log-panel {
-      position: absolute; left: 0; right: 0; bottom: 0; max-height: 40%;
-      overflow-y: auto; background: rgba(0,0,0,0.85); color: #0f0;
-      font: 12px/1.4 monospace; padding: 8px; box-sizing: border-box;
-      z-index: 9999; white-space: pre-wrap; word-break: break-all;
-    }
-    #copy-log-btn {
-      position: absolute; right: 8px; bottom: calc(40% + 8px); z-index: 10000;
-      background: #222; color: #fff; border: 1px solid #666; border-radius: 6px;
-      padding: 8px 12px; font-size: 13px;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>ARデジタル金魚すくい</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #0a1f33;
+    font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
+    -webkit-user-select: none; user-select: none;
+  }
+  #camerafeed { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  .screen {
+    position: fixed; inset: 0; z-index: 30;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: #fff; text-align: center; box-sizing: border-box; padding: 24px; gap: 14px;
+  }
+  .hidden { display: none !important; }
 
-  <!-- Three.js本体(r150以降はグローバル版ビルドが廃止されたため、まだ存在するr149系を指定) -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+  /* ===== タイトル ===== */
+  #titleScreen { background: linear-gradient(160deg, #0b3d5c, #0a1f33); }
+  #titleScreen h1 { font-size: 24px; margin: 0; }
+  #titleScreen p { font-size: 12.5px; opacity: 0.8; max-width: 320px; line-height: 1.6; margin: 0; }
+  .bigBtn {
+    padding: 15px 44px; font-size: 16px; border: none; border-radius: 999px;
+    background: #ffb703; color: #1a1a1a; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .subBtn {
+    padding: 11px 30px; font-size: 14px; border-radius: 999px;
+    background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.4);
+  }
+  #coinDisplayTitle { font-size: 15px; background: rgba(0,0,0,0.35); padding: 6px 16px; border-radius: 999px; }
+  .titleBtnRow { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 
-  <!-- 8th Wall エンジン(SLAM込み・クローズドバイナリ) -->
-  <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
-    async crossorigin="anonymous" data-preload-chunks="slam"></script>
+  /* ===== 図鑑 ===== */
+  #zukanScreen { background: rgba(5,15,25,0.97); }
+  #zukanGrid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    max-width: 380px; width: 100%; max-height: 50vh; overflow-y: auto; padding: 6px;
+  }
+  .zukanCell {
+    aspect-ratio: 1; border-radius: 10px; background: rgba(255,255,255,0.08);
+    display: flex; align-items: center; justify-content: center; font-size: 26px;
+    border: 1px solid rgba(255,255,255,0.15); position: relative;
+  }
+  .zukanCell.locked { opacity: 0.3; }
+  .zukanCell .rarityDot {
+    position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%;
+  }
 
-  <!-- 補助UI(ローディング画面・エラーハンドリング等) -->
-  <script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js"
-    crossorigin="anonymous"></script>
+  /* ===== ショップ(強化) ===== */
+  #shopScreen { background: rgba(5,15,25,0.97); }
+  .shopItem {
+    width: 100%; max-width: 340px; display: flex; justify-content: space-between; align-items: center;
+    background: rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 16px; font-size: 13px;
+  }
+  .shopItem button {
+    padding: 6px 14px; border-radius: 999px; border: none; background: #ffb703; color: #1a1a1a; font-size: 12px; font-weight: bold;
+  }
+  .shopItem button:disabled { background: #555; color: #999; }
+  #activeBuffRow { font-size: 11.5px; opacity: 0.85; min-height: 16px; }
+
+  /* ===== AR中HUD ===== */
+  #hud {
+    position: fixed; top: 0; left: 0; width: 100%; z-index: 10;
+    pointer-events: none; color: #fff; box-sizing: border-box;
+    padding: max(env(safe-area-inset-top), 10px) 14px 0 14px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  }
+  #hintText {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10; text-align: center;
+    padding-top: max(env(safe-area-inset-top), 10px);
+    color: #fff; font-size: 13px; text-shadow: 0 1px 3px rgba(0,0,0,0.9); pointer-events: none;
+  }
+  #coinHud { background: rgba(0,0,0,0.4); padding: 5px 12px; border-radius: 999px; font-size: 13px; }
+  #backBtn {
+    background: rgba(0,0,0,0.4); border: none; color: #fff; border-radius: 999px;
+    padding: 6px 14px; font-size: 12px; pointer-events: auto;
+  }
+  #catchEffectText {
+    position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 22px; font-weight: bold; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+    z-index: 15; pointer-events: none; opacity: 0; transition: none;
+  }
+  #durabilityBarWrap {
+    position: fixed; bottom: max(env(safe-area-inset-bottom), 16px); left: 50%; transform: translateX(-50%);
+    width: 60%; max-width: 260px; height: 10px; background: rgba(255,255,255,0.25); border-radius: 999px;
+    overflow: hidden; z-index: 10; display: none;
+  }
+  #durabilityBar { height: 100%; width: 100%; background: #ffb703; transition: width 0.1s linear; }
+
+  #errorScreen {
+    position: fixed; inset: 0; background: #111; color: #fff; display: none;
+    align-items: center; justify-content: center; text-align: center;
+    font-family: sans-serif; padding: 24px; z-index: 100; font-size: 14px; line-height: 1.7;
+  }
+
+  /* ===== デバッグログパネル(折りたたみ式) ===== */
+  #logToggleBtn {
+    position: fixed; left: 8px; bottom: 8px; z-index: 10001;
+    background: rgba(0,0,0,0.5); color: #0f0; border: 1px solid #444; border-radius: 6px;
+    padding: 5px 10px; font-size: 11px; font-family: monospace;
+  }
+  #logPanel {
+    position: absolute; left: 0; right: 0; bottom: 0; max-height: 40%;
+    overflow-y: auto; background: rgba(0,0,0,0.9); color: #0f0;
+    font: 11px/1.4 monospace; padding: 8px; box-sizing: border-box;
+    z-index: 10000; white-space: pre-wrap; word-break: break-all; display: none;
+  }
+</style>
+
+<!-- Three.js本体(r150以降はグローバル版ビルドが廃止されたため、まだ存在するr149系を指定。今回の会話中で確認済みの正しいバージョン) -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+
+<!-- 8th Wall エンジン(SLAM込み・クローズドバイナリ・無償配布) -->
+<script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
+  async crossorigin="anonymous" data-preload-chunks="slam"></script>
+
+<!-- 補助UI(ローディング画面・エラーハンドリング等) -->
+<script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js"
+  crossorigin="anonymous"></script>
 </head>
 <body>
-  <canvas id="camerafeed"></canvas>
-  <div id="hint">まわりを見渡してください...</div>
-  <button id="copy-log-btn">ログ全部をコピー</button>
-  <div id="log-panel"></div>
 
-  <script>
-    // ==== 画面上ログパネル ====
-    const logPanel = document.getElementById('log-panel')
-    const logLines = []
-    const addLog = (level, args) => {
-      const time = new Date().toLocaleTimeString('ja-JP', { hour12: false })
-      const msg = Array.from(args).map(a => {
-        try { return typeof a === 'object' ? JSON.stringify(a) : String(a) }
-        catch (e) { return String(a) }
-      }).join(' ')
-      const line = `[${time}] [${level}] ${msg}`
-      logLines.push(line)
-      const div = document.createElement('div')
-      div.textContent = line
-      if (level === 'ERROR') div.style.color = '#f55'
-      logPanel.appendChild(div)
-      logPanel.scrollTop = logPanel.scrollHeight
-    }
-    const _origLog = console.log, _origErr = console.error, _origWarn = console.warn
-    console.log = (...args) => { _origLog(...args); addLog('LOG', args) }
-    console.error = (...args) => { _origErr(...args); addLog('ERROR', args) }
-    console.warn = (...args) => { _origWarn(...args); addLog('WARN', args) }
-    window.addEventListener('error', (e) => addLog('ERROR', [`${e.message} @ ${e.filename}:${e.lineno}`]))
-    window.addEventListener('unhandledrejection', (e) => addLog('ERROR', [`Promise rejection: ${e.reason}`]))
-    document.getElementById('copy-log-btn').addEventListener('click', () => {
-      const text = logLines.join('\n')
-      navigator.clipboard?.writeText(text)
-        .then(() => addLog('LOG', ['ログをクリップボードにコピーしました']))
-        .catch(() => addLog('ERROR', ['コピー失敗。手動で選択してコピーしてください']))
+<canvas id="camerafeed"></canvas>
+
+<!-- ===== タイトル画面 ===== -->
+<div id="titleScreen" class="screen">
+  <div id="coinDisplayTitle">🪙 <span id="coinCountTitle">0</span></div>
+  <h1>ARデジタル金魚すくい</h1>
+  <p>スマホを金魚に近づけてポイですくおう。すくった後はポイの上でスマホを傾けてバランスを取って捕獲や。</p>
+  <button class="bigBtn" id="startBtn">はじめる</button>
+  <div class="titleBtnRow">
+    <button class="subBtn" id="openZukanBtn">📖 図鑑</button>
+    <button class="subBtn" id="openShopBtn">🛠 ポイ強化</button>
+  </div>
+</div>
+
+<!-- ===== 図鑑画面 ===== -->
+<div id="zukanScreen" class="screen hidden">
+  <h1 style="font-size:18px;">金魚図鑑</h1>
+  <div id="zukanGrid"></div>
+  <button class="subBtn" id="closeZukanBtn">閉じる</button>
+</div>
+
+<!-- ===== ショップ画面 ===== -->
+<div id="shopScreen" class="screen hidden">
+  <h1 style="font-size:18px;">ポイ強化(次の1回のみ有効)</h1>
+  <div id="coinDisplayShop" style="font-size:13px; opacity:0.85;">所持コイン: 🪙 <span id="coinCountShop">0</span></div>
+  <div id="shopList" style="display:flex; flex-direction:column; gap:8px; width:100%; align-items:center;"></div>
+  <button class="subBtn" id="closeShopBtn">閉じる</button>
+</div>
+
+<!-- ===== AR中UI ===== -->
+<div id="hintText">まわりを見渡してください...</div>
+<div id="hud">
+  <button id="backBtn" class="hidden">✕ やめる</button>
+  <div id="coinHud">🪙 <span id="coinCountHud">0</span></div>
+</div>
+<div id="catchEffectText"></div>
+<div id="durabilityBarWrap"><div id="durabilityBar"></div></div>
+
+<div id="errorScreen"></div>
+
+<!-- ===== デバッグログ(折りたたみ) ===== -->
+<button id="logToggleBtn">ログ表示</button>
+<div id="logPanel"></div>
+
+<script>
+/* =========================================================
+   0. デバッグログパネル
+   ========================================================= */
+const logPanel = document.getElementById('logPanel')
+const logToggleBtn = document.getElementById('logToggleBtn')
+const logLines = []
+let logVisible = false
+logToggleBtn.addEventListener('click', () => {
+  logVisible = !logVisible
+  logPanel.style.display = logVisible ? 'block' : 'none'
+  logToggleBtn.textContent = logVisible ? 'ログ非表示' : 'ログ表示'
+})
+const addLog = (level, args) => {
+  const time = new Date().toLocaleTimeString('ja-JP', { hour12: false })
+  const msg = Array.from(args).map(a => {
+    try { return typeof a === 'object' ? JSON.stringify(a) : String(a) }
+    catch (e) { return String(a) }
+  }).join(' ')
+  const line = `[${time}] [${level}] ${msg}`
+  logLines.push(line)
+  const div = document.createElement('div')
+  div.textContent = line
+  if (level === 'ERROR') div.style.color = '#f55'
+  logPanel.appendChild(div)
+  logPanel.scrollTop = logPanel.scrollHeight
+}
+const _origLog = console.log, _origErr = console.error, _origWarn = console.warn
+console.log = (...a) => { _origLog(...a); addLog('LOG', a) }
+console.error = (...a) => { _origErr(...a); addLog('ERROR', a) }
+console.warn = (...a) => { _origWarn(...a); addLog('WARN', a) }
+window.addEventListener('error', (e) => addLog('ERROR', [`${e.message} @ ${e.filename}:${e.lineno}`]))
+window.addEventListener('unhandledrejection', (e) => addLog('ERROR', [`Promise rejection: ${e.reason}`]))
+console.log('スクリプト評価開始')
+console.log(`UA: ${navigator.userAgent}`)
+
+/* =========================================================
+   1. 金魚の種類・レアリティ定義(図鑑)
+   ========================================================= */
+const FISH_SPECIES = [
+  { id: 'wakin',    name: '和金',       rarity: 1, color: 0xff5533, coin: 10, escapeSpeed: 1.0 },
+  { id: 'demekin',  name: '出目金',     rarity: 2, color: 0x222222, coin: 20, escapeSpeed: 1.2 },
+  { id: 'ranchu',   name: 'らんちゅう', rarity: 2, color: 0xffaa77, coin: 20, escapeSpeed: 1.2 },
+  { id: 'ryukin',   name: '琉金',       rarity: 1, color: 0xff8899, coin: 10, escapeSpeed: 1.0 },
+  { id: 'shiro',    name: '白変わり',   rarity: 3, color: 0xffffff, coin: 40, escapeSpeed: 1.5 },
+  { id: 'ayakashi', name: 'あやかし金魚', rarity: 4, color: 0x66ffee, coin: 100, escapeSpeed: 2.0, glow: true },
+]
+const RARITY_COLOR = { 1: '#9aa', 2: '#4ac0ff', 3: '#c77dff', 4: '#ffd23f' }
+
+/* =========================================================
+   2. セーブデータ(localStorage)
+   ========================================================= */
+const SAVE_KEY = 'kingyo_ar_save_v1'
+const loadSave = () => {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch (e) { console.error('セーブデータ読み込み失敗: ' + e.message) }
+  return { coin: 0, zukan: {} } // zukan: { fishId: catchCount }
+}
+const state = loadSave()
+const persist = () => {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)) }
+  catch (e) { console.error('セーブ失敗: ' + e.message) }
+}
+
+/* =========================================================
+   3. 強化アイテム(消費型・次の1トライのみ有効)
+   ========================================================= */
+const SHOP_ITEMS = [
+  { id: 'range',   name: '判定範囲UP',     cost: 15, desc: '第1段階の接触判定が広がる' },
+  { id: 'durable', name: '耐久UP',         cost: 15, desc: '第2段階の破れゲージが長持ち' },
+  { id: 'stable',  name: '安定化',         cost: 20, desc: 'ジャイロ操作の許容範囲が広がる' },
+  { id: 'rare',    name: 'レア引き寄せ',   cost: 25, desc: 'レア金魚の出現率が上がる' },
+]
+let activeBuff = null // { id, ... } 1回使ったらnullに戻す
+
+/* =========================================================
+   4. 画面切り替え
+   ========================================================= */
+const screens = {
+  title: document.getElementById('titleScreen'),
+  zukan: document.getElementById('zukanScreen'),
+  shop: document.getElementById('shopScreen'),
+}
+const showScreen = (name) => {
+  Object.values(screens).forEach(s => s.classList.add('hidden'))
+  if (name) screens[name].classList.remove('hidden')
+}
+const updateCoinDisplays = () => {
+  document.getElementById('coinCountTitle').textContent = state.coin
+  document.getElementById('coinCountShop').textContent = state.coin
+  document.getElementById('coinCountHud').textContent = state.coin
+}
+updateCoinDisplays()
+
+/* ---- 図鑑描画 ---- */
+const renderZukan = () => {
+  const grid = document.getElementById('zukanGrid')
+  grid.innerHTML = ''
+  FISH_SPECIES.forEach(fish => {
+    const count = state.zukan[fish.id] || 0
+    const cell = document.createElement('div')
+    cell.className = 'zukanCell' + (count === 0 ? ' locked' : '')
+    cell.innerHTML = count > 0
+      ? `🐟<div class="rarityDot" style="background:${RARITY_COLOR[fish.rarity]}"></div>`
+      : '？'
+    cell.title = count > 0 ? `${fish.name} x${count}` : '未捕獲'
+    grid.appendChild(cell)
+  })
+}
+
+/* ---- ショップ描画 ---- */
+const renderShop = () => {
+  const list = document.getElementById('shopList')
+  list.innerHTML = ''
+  SHOP_ITEMS.forEach(item => {
+    const row = document.createElement('div')
+    row.className = 'shopItem'
+    row.innerHTML = `
+      <div>
+        <div style="font-weight:bold;">${item.name}(🪙${item.cost})</div>
+        <div style="font-size:11px; opacity:0.75;">${item.desc}</div>
+      </div>
+      <button ${state.coin < item.cost ? 'disabled' : ''}>使う</button>
+    `
+    row.querySelector('button').addEventListener('click', () => {
+      if (state.coin < item.cost) return
+      state.coin -= item.cost
+      activeBuff = { id: item.id }
+      persist()
+      updateCoinDisplays()
+      renderShop()
+      console.log(`強化アイテム使用: ${item.name}(次のトライのみ有効)`)
     })
-    addLog('LOG', ['スクリプト評価開始'])
-    addLog('LOG', [`UA: ${navigator.userAgent}`])
+    list.appendChild(row)
+  })
+}
 
-    // ==== 地面タップ配置ロジック ====
-    const hintEl = document.getElementById('hint')
-    let groundFound = false
-    let raycaster, groundPlane, mouse
+document.getElementById('openZukanBtn').addEventListener('click', () => { renderZukan(); showScreen('zukan') })
+document.getElementById('closeZukanBtn').addEventListener('click', () => showScreen('title'))
+document.getElementById('openShopBtn').addEventListener('click', () => { renderShop(); showScreen('shop') })
+document.getElementById('closeShopBtn').addEventListener('click', () => showScreen('title'))
 
-    // 見えないY=0の地面(ここに向かってレイキャストする)
-    const setupGround = (scene) => {
-      const geo = new THREE.PlaneGeometry(1000, 1000)
-      geo.rotateX(-Math.PI / 2)
-      const mat = new THREE.MeshBasicMaterial({ visible: false })
-      groundPlane = new THREE.Mesh(geo, mat)
-      scene.add(groundPlane)
-      raycaster = new THREE.Raycaster()
-      mouse = new THREE.Vector2()
-    }
+/* =========================================================
+   5. AR起動
+   ========================================================= */
+const hintEl = document.getElementById('hintText')
+const errorEl = document.getElementById('errorScreen')
+const showError = (msg) => { errorEl.style.display = 'flex'; errorEl.textContent = msg }
 
-    // タップした画面座標→地面との交点に金魚(仮オブジェクト)を配置
-    const placeAtTap = (clientX, clientY) => {
-      const { camera, scene } = XR8.Threejs.xrScene()
-      mouse.x = (clientX / window.innerWidth) * 2 - 1
-      mouse.y = -(clientY / window.innerHeight) * 2 + 1
-      raycaster.setFromCamera(mouse, camera)
-      const hits = raycaster.intersectObject(groundPlane)
-      if (hits.length === 0) {
-        console.log('地面との交点なし(タップ位置が地平線より上など)')
-        return
+if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+  showError('HTTPSでアクセスしてください(カメラ利用にはHTTPSが必須やで)')
+}
+
+let arStarted = false
+let groundReady = false
+
+document.getElementById('startBtn').addEventListener('click', () => {
+  showScreen(null)
+  document.getElementById('backBtn').classList.remove('hidden')
+  if (!arStarted) {
+    arStarted = true
+    startAR()
+  }
+})
+document.getElementById('backBtn').addEventListener('click', () => {
+  showScreen('title')
+  document.getElementById('backBtn').classList.add('hidden')
+  hintEl.textContent = ''
+})
+
+/* =========================================================
+   6. Three.js / XR8 ゲームロジック
+   ========================================================= */
+let poiGroup, scene, camera
+let fishes = [] // { mesh, species, state: 'swim'|'caught'|'escaping', ... }
+const CATCH_RADIUS_BASE = 0.22
+const HOLD_TIME_TO_SUCCESS = 1.6 // 秒: ポイ中央付近をこれだけキープで成功
+const EDGE_RADIUS = 0.16 // ポイ上でのローカル半径。ここを超えたら逃げられる
+
+const catchEffectText = document.getElementById('catchEffectText')
+const showFloatText = (text, color) => {
+  catchEffectText.textContent = text
+  catchEffectText.style.color = color || '#fff'
+  catchEffectText.style.opacity = '1'
+  catchEffectText.style.transform = 'translate(-50%, -60%)'
+  catchEffectText.style.transition = 'opacity 0.5s, transform 0.5s'
+  setTimeout(() => {
+    catchEffectText.style.opacity = '0'
+    catchEffectText.style.transform = 'translate(-50%, -80%)'
+  }, 550)
+}
+
+// ---- ポイ(すくい網)をカメラの子として構築 ----
+const buildPoi = () => {
+  const group = new THREE.Group()
+
+  const ringGeo = new THREE.TorusGeometry(0.11, 0.008, 8, 24)
+  const ringMat = new THREE.MeshStandardMaterial({ color: 0xd8b070 })
+  const ring = new THREE.Mesh(ringGeo, ringMat)
+  ring.rotation.x = Math.PI / 2
+  group.add(ring)
+
+  const paperGeo = new THREE.CircleGeometry(0.105, 24)
+  const paperMat = new THREE.MeshStandardMaterial({
+    color: 0xfff6e0, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+  })
+  const paper = new THREE.Mesh(paperGeo, paperMat)
+  paper.rotation.x = Math.PI / 2.2
+  paper.position.y = -0.005
+  group.add(paper)
+
+  const handleGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.22, 8)
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0x8a5a2b })
+  const handle = new THREE.Mesh(handleGeo, handleMat)
+  handle.position.set(0, -0.13, 0.04)
+  handle.rotation.x = 0.3
+  group.add(handle)
+
+  // カメラの少し下・少し奥に固定(画面の下側に、金魚より手前に見える位置)
+  group.position.set(0, -0.18, -0.45)
+  group.rotation.x = -0.15
+  return group
+}
+
+// ---- 金魚メッシュ生成 ----
+const buildFishMesh = (species) => {
+  const geo = new THREE.SphereGeometry(0.045, 12, 12)
+  geo.scale(1, 0.55, 1.7)
+  const mat = new THREE.MeshStandardMaterial({
+    color: species.color,
+    emissive: species.glow ? species.color : 0x000000,
+    emissiveIntensity: species.glow ? 0.6 : 0,
+  })
+  const mesh = new THREE.Mesh(geo, mat)
+  // 尾びれ
+  const tailGeo = new THREE.ConeGeometry(0.035, 0.05, 8)
+  const tail = new THREE.Mesh(tailGeo, mat)
+  tail.rotation.z = Math.PI / 2
+  tail.position.set(0, 0, 0.075)
+  mesh.add(tail)
+  return mesh
+}
+
+// ---- 抽選(レアリティに応じた重み付け。rareバフで補正) ----
+const pickSpecies = () => {
+  const rareBonus = activeBuff && activeBuff.id === 'rare' ? 2.2 : 1.0
+  const weights = FISH_SPECIES.map(f => (1 / f.rarity) * (f.rarity >= 3 ? rareBonus : 1))
+  const total = weights.reduce((a, b) => a + b, 0)
+  let r = Math.random() * total
+  for (let i = 0; i < FISH_SPECIES.length; i++) {
+    r -= weights[i]
+    if (r <= 0) return FISH_SPECIES[i]
+  }
+  return FISH_SPECIES[0]
+}
+
+// ---- 水場(池)と金魚の初期配置 ----
+const spawnPond = () => {
+  const { camera, scene } = XR8.Threejs.xrScene()
+  // カメラの現在位置から少し前方・下方に池の中心を置く
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
+  forward.y = 0
+  forward.normalize()
+  const pondCenter = camera.position.clone().add(forward.multiplyScalar(1.2))
+  pondCenter.y = camera.position.y - 1.0 // 足元より少し下を池の水面とみなす(要検証: 実際の床の高さと合わない場合は調整要)
+
+  const pondGeo = new THREE.CircleGeometry(0.9, 32)
+  pondGeo.rotateX(-Math.PI / 2)
+  const pondMat = new THREE.MeshStandardMaterial({ color: 0x1560a0, transparent: true, opacity: 0.35 })
+  const pond = new THREE.Mesh(pondGeo, pondMat)
+  pond.position.copy(pondCenter)
+  scene.add(pond)
+
+  for (let i = 0; i < 5; i++) spawnFish(pondCenter)
+  console.log(`池を生成 (${pondCenter.x.toFixed(2)}, ${pondCenter.y.toFixed(2)}, ${pondCenter.z.toFixed(2)})`)
+}
+
+const spawnFish = (pondCenter) => {
+  const { scene } = XR8.Threejs.xrScene()
+  const species = pickSpecies()
+  const mesh = buildFishMesh(species)
+  const angle = Math.random() * Math.PI * 2
+  const r = Math.random() * 0.65
+  mesh.position.set(
+    pondCenter.x + Math.cos(angle) * r,
+    pondCenter.y + 0.02,
+    pondCenter.z + Math.sin(angle) * r
+  )
+  scene.add(mesh)
+  fishes.push({
+    mesh, species, mode: 'swim',
+    swimAngle: angle, swimR: r, pondCenter,
+    swimSpeed: 0.3 + Math.random() * 0.3,
+    // 第2段階(捕捉後)用パラメータ
+    localOffset: new THREE.Vector2(0, 0),
+    holdTimer: 0,
+  })
+}
+
+/* ---- タイトルへ戻す共通処理(捕獲成功/失敗後) ---- */
+const releaseFishBackToSwim = (fish) => {
+  fish.mode = 'swim'
+  fish.holdTimer = 0
+  fish.mesh.position.set(
+    fish.pondCenter.x + Math.cos(fish.swimAngle) * fish.swimR,
+    fish.pondCenter.y + 0.02,
+    fish.pondCenter.z + Math.sin(fish.swimAngle) * fish.swimR
+  )
+}
+
+/* =========================================================
+   7. 毎フレーム更新
+   ========================================================= */
+let lastTime = performance.now()
+const updateLoop = () => {
+  const now = performance.now()
+  const dt = Math.min((now - lastTime) / 1000, 0.1)
+  lastTime = now
+  if (!scene) { requestAnimationFrame(updateLoop); return }
+
+  const poiWorldPos = new THREE.Vector3()
+  poiGroup.getWorldPosition(poiWorldPos)
+
+  fishes.forEach(fish => {
+    if (fish.mode === 'swim') {
+      fish.swimAngle += fish.swimSpeed * dt
+      fish.mesh.position.x = fish.pondCenter.x + Math.cos(fish.swimAngle) * fish.swimR
+      fish.mesh.position.z = fish.pondCenter.z + Math.sin(fish.swimAngle) * fish.swimR
+      fish.mesh.rotation.y = -fish.swimAngle + Math.PI / 2
+
+      // ---- 第1段階: ポイとの接触判定(広め・サクッと) ----
+      const rangeBonus = activeBuff && activeBuff.id === 'range' ? 1.5 : 1.0
+      const dist = fish.mesh.position.distanceTo(poiWorldPos)
+      if (dist < CATCH_RADIUS_BASE * rangeBonus) {
+        fish.mode = 'caught'
+        fish.localOffset.set(0, 0)
+        fish.holdTimer = 0
+        fish.durability = 1.0
+        console.log(`接触: ${fish.species.name} → 第2段階開始`)
+        document.getElementById('durabilityBarWrap').style.display = 'block'
       }
-      const point = hits[0].point
-      console.log(`配置: x=${point.x.toFixed(2)} y=${point.y.toFixed(2)} z=${point.z.toFixed(2)}`)
+    } else if (fish.mode === 'caught') {
+      // ---- 第2段階: ポイのローカル座標系でバランス勝負 ----
+      // デバイスの傾き(カメラのroll相当)を使って、金魚をポイの中心からズラす力を加える
+      const tiltX = camera.rotation.z // 左右の傾き
+      const tiltY = camera.rotation.x // 前後の傾き
+      const escapeSpeed = fish.species.escapeSpeed * 0.35
 
-      // ==== 仮の金魚オブジェクト(あとで.glbモデルに差し替え予定) ====
-      const geo = new THREE.SphereGeometry(0.08, 16, 16)
-      geo.scale(1, 0.6, 1.6) // 金魚っぽく少し潰して伸ばす
-      const mat = new THREE.MeshStandardMaterial({ color: 0xff6b3d })
-      const fish = new THREE.Mesh(geo, mat)
-      fish.position.copy(point)
-      fish.position.y += 0.08
-      fish.scale.setScalar(0.01)
-      scene.add(fish)
+      // 金魚は常に外側に逃げようとする(ランダム+傾きに影響される)
+      const wobble = (Math.sin(now / 130 + fish.swimAngle * 10) * 0.5)
+      fish.localOffset.x += (wobble - tiltX * 0.6) * escapeSpeed * dt
+      fish.localOffset.y += (Math.cos(now / 170) * 0.4 - tiltY * 0.6) * escapeSpeed * dt
 
-      // 出現アニメーション(小→通常サイズへスケールアップ)
-      const start = performance.now()
-      const grow = () => {
-        const t = Math.min((performance.now() - start) / 300, 1)
-        const s = 0.01 + (1 - 0.01) * t
-        fish.scale.setScalar(s)
-        if (t < 1) requestAnimationFrame(grow)
-      }
-      grow()
-    }
+      const stableBonus = activeBuff && activeBuff.id === 'stable' ? 0.6 : 1.0
+      fish.localOffset.multiplyScalar(1 - 0.15 * stableBonus) // 減衰(安定化バフで強く減衰)
 
-    // ==== Three.jsシーンの初期化 ====
-    const initScene = () => {
-      console.log('onStart: Three.jsシーン初期化開始')
-      const { scene } = XR8.Threejs.xrScene()
+      const offsetLen = fish.localOffset.length()
 
-      setupGround(scene)
+      // ポイに追従する位置(ローカルオフセットをワールドに変換)
+      const localPos = new THREE.Vector3(fish.localOffset.x, 0.02, fish.localOffset.y)
+      poiGroup.localToWorld(localPos.clone())
+      const worldPos = poiGroup.localToWorld(localPos.clone())
+      fish.mesh.position.copy(worldPos)
 
-      const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0)
-      scene.add(light)
-      const dirLight = new THREE.DirectionalLight(0xffffff, 0.6)
-      dirLight.position.set(1, 3, 1)
-      scene.add(dirLight)
+      // 耐久ゲージ消費(縁に近いほど減る)
+      const durableBonus = activeBuff && activeBuff.id === 'durable' ? 1.6 : 1.0
+      fish.durability -= (offsetLen / EDGE_RADIUS) * dt * 0.35 / durableBonus
+      document.getElementById('durabilityBar').style.width = `${Math.max(0, fish.durability) * 100}%`
 
-      // タップ/クリックイベントを拾う
-      window.addEventListener('touchstart', (e) => {
-        if (!groundFound) return
-        const t = e.touches[0]
-        placeAtTap(t.clientX, t.clientY)
-      })
-      window.addEventListener('click', (e) => {
-        if (!groundFound) return
-        placeAtTap(e.clientX, e.clientY)
-      })
-
-      console.log('onStart: シーン初期化完了')
-    }
-
-    // World Trackingの状態を見て「地面検出できたっぽいか」の目安にする
-    const onTrackingStatus = (event) => {
-      const { status } = event.detail
-      console.log('trackingStatus:', status)
-      if (status === 'NORMAL' && !groundFound) {
-        groundFound = true
-        hintEl.textContent = '画面をタップして金魚を配置'
-        console.log('トラッキング安定 → タップ受付開始')
+      if (offsetLen > EDGE_RADIUS || fish.durability <= 0) {
+        // ---- 失敗: 爆速リターン ----
+        console.log(`逃げられた: ${fish.species.name}`)
+        showFloatText('おしい!', '#ffd23f')
+        document.getElementById('durabilityBarWrap').style.display = 'none'
+        activeBuff = null // 消費型バフはここで消える
+        releaseFishBackToSwim(fish)
+      } else {
+        fish.holdTimer += dt
+        if (fish.holdTimer > HOLD_TIME_TO_SUCCESS) {
+          // ---- 成功 ----
+          console.log(`捕獲成功: ${fish.species.name}`)
+          showFloatText(`${fish.species.name} 捕獲!`, RARITY_COLOR[fish.species.rarity])
+          document.getElementById('durabilityBarWrap').style.display = 'none'
+          state.coin += fish.species.coin
+          state.zukan[fish.species.id] = (state.zukan[fish.species.id] || 0) + 1
+          persist()
+          updateCoinDisplays()
+          activeBuff = null
+          releaseFishBackToSwim(fish)
+        }
       }
     }
+  })
 
-    // ==== XR8起動処理 ====
-    const onxrloaded = () => {
-      console.log('xrloadedイベント発火。XR8初期化を開始します')
+  requestAnimationFrame(updateLoop)
+}
 
-      // マーカー無し。World Tracking(SLAM)のみを使う
-      XR8.XrController.configure({
-        disableWorldTracking: false,
-      })
+/* =========================================================
+   8. XR8初期化
+   ========================================================= */
+const initScene = () => {
+  console.log('onStart: Three.jsシーン初期化開始')
+  const xrScene = XR8.Threejs.xrScene()
+  scene = xrScene.scene
+  camera = xrScene.camera
 
-      XR8.addCameraPipelineModules([
-        XR8.GlTextureRenderer.pipelineModule(),
-        XR8.Threejs.pipelineModule(),
-        XR8.XrController.pipelineModule(),
-        XRExtras.AlmostThere.pipelineModule(),
-        XRExtras.FullWindowCanvas.pipelineModule(),
-        XRExtras.Loading.pipelineModule(),
-        XRExtras.RuntimeError.pipelineModule(),
-        {
-          name: 'kingyo-ground-app',
-          onStart: initScene,
-          listeners: [
-            { event: 'reality.trackingstatus', process: onTrackingStatus },
-          ],
-        },
-      ])
-      console.log('パイプラインモジュール追加完了')
+  const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0)
+  scene.add(light)
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6)
+  dirLight.position.set(1, 3, 1)
+  scene.add(dirLight)
 
-      XR8.run({ canvas: document.getElementById('camerafeed') })
-      console.log('XR8.run() 呼び出し完了。カメラ起動待ち')
-    }
+  poiGroup = buildPoi()
+  camera.add(poiGroup)
+  if (!scene.children.includes(camera)) scene.add(camera)
 
-    if (window.XR8) {
-      onxrloaded()
-    } else {
-      window.addEventListener('xrloaded', onxrloaded)
-    }
+  console.log('onStart: シーン初期化完了(ポイをカメラに固定)')
+  requestAnimationFrame(updateLoop)
+}
 
-    setTimeout(() => {
-      if (!window.XR8) {
-        console.error('8秒経ってもXR8が読み込まれていません。xr.js(CDN)の読み込み失敗、またはネットワーク接続を確認してください')
-      }
-    }, 8000)
-  </script>
+const onTrackingStatus = (event) => {
+  const { status } = event.detail
+  console.log('trackingStatus:', status)
+  if (status === 'NORMAL' && !groundReady) {
+    groundReady = true
+    hintEl.textContent = ''
+    spawnPond()
+  }
+}
+
+const startAR = () => {
+  const onxrloaded = () => {
+    console.log('xrloadedイベント発火。XR8初期化を開始します')
+    XR8.XrController.configure({ disableWorldTracking: false })
+
+    XR8.addCameraPipelineModules([
+      XR8.GlTextureRenderer.pipelineModule(),
+      XR8.Threejs.pipelineModule(),
+      XR8.XrController.pipelineModule(),
+      XRExtras.AlmostThere.pipelineModule(),
+      XRExtras.FullWindowCanvas.pipelineModule(),
+      XRExtras.Loading.pipelineModule(),
+      XRExtras.RuntimeError.pipelineModule(),
+      {
+        name: 'kingyo-app',
+        onStart: initScene,
+        listeners: [{ event: 'reality.trackingstatus', process: onTrackingStatus }],
+      },
+    ])
+    console.log('パイプラインモジュール追加完了')
+    XR8.run({ canvas: document.getElementById('camerafeed') })
+    console.log('XR8.run() 呼び出し完了。カメラ起動待ち')
+  }
+
+  if (window.XR8) onxrloaded()
+  else window.addEventListener('xrloaded', onxrloaded)
+
+  setTimeout(() => {
+    if (!window.XR8) console.error('8秒経ってもXR8が読み込まれていません。xr.js(CDN)の読み込み失敗、またはネットワーク接続を確認してください')
+  }, 8000)
+}
+</script>
 </body>
 </html>
