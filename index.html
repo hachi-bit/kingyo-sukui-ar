@@ -3,1207 +3,155 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>ARデジタル金魚すくい</title>
-<script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js" async crossorigin="anonymous" data-preload-chunks="slam"></script>
-<script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<title>MindAR プロトタイプ</title>
+<!-- 公式ドキュメント記載の組み合わせ: A-Frame 1.5.0 + mind-ar@1.2.5 -->
+<script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
     overflow: hidden;
     font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
-    -webkit-user-select: none; user-select: none;
   }
-  #camerafeed { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-  #arjsWrap {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;
+  /* AR.jsの時と同じ轍を踏まないよう、bodyに不透明な背景色は付けない */
+  #startOverlay {
+    position: fixed; inset: 0; z-index: 20;
+    background: linear-gradient(160deg, #0b3d5c, #0a1f33);
+    color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; text-align: center; padding: 24px; box-sizing: border-box;
   }
-  .a-enter-vr, .a-enter-ar { display: none !important; }
-  .screen {
-    position: fixed; inset: 0; z-index: 30;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    color: #fff; text-align: center; box-sizing: border-box; padding: 24px;
-  }
-  .hidden { display: none !important; }
-
-  /* タイトル */
-  #titleScreen { background: linear-gradient(160deg, #0b3d5c, #0a1f33); gap: 14px; }
-  #titleScreen h1 { font-size: 24px; margin: 0; }
-  #titleScreen p { font-size: 12.5px; opacity: 0.8; max-width: 320px; line-height: 1.6; margin: 0; }
-  .bigBtn {
-    padding: 15px 44px; font-size: 16px; border: none; border-radius: 999px;
-    background: #ffb703; color: #1a1a1a; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  }
-  .subBtn {
-    padding: 11px 30px; font-size: 14px; border: none; border-radius: 999px;
-    background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.4);
-  }
-  #coinDisplayTitle { font-size: 15px; background: rgba(0,0,0,0.35); padding: 6px 16px; border-radius: 999px; }
-  #autoBuffRow { font-size: 12px; opacity: 0.85; display: flex; align-items: center; gap: 6px; }
-
-  /* HUD (AR中) */
-  #hud {
-    position: fixed; top: 0; left: 0; width: 100%; z-index: 10;
-    pointer-events: none; color: #fff; box-sizing: border-box;
-    padding: env(safe-area-inset-top, 10px) 12px 0;
-    display: flex; justify-content: space-between; align-items: flex-start;
-  }
-  .hudPill { background: rgba(0,0,0,0.55); border-radius: 999px; padding: 7px 14px; font-size: 13px; }
-  #catchBanner {
-    position: fixed; top: 40%; left: 50%; transform: translate(-50%,-50%);
-    z-index: 15; font-size: 26px; font-weight: bold; color: #ffe066;
-    text-shadow: 0 2px 8px rgba(0,0,0,0.8); pointer-events: none; opacity: 0; transition: opacity 0.15s;
-  }
-  #liftBanner {
-    position: fixed; top: 32%; left: 50%; transform: translate(-50%,-50%);
-    z-index: 16; font-size: 44px; font-weight: 900; color: #7cffb0;
-    text-shadow: 0 3px 10px rgba(0,0,0,0.85), 0 0 20px rgba(124,255,176,0.6);
-    pointer-events: none; letter-spacing: 2px;
-    animation: liftPulse 0.6s ease-in-out infinite alternate;
-  }
-  @keyframes liftPulse {
-    from { transform: translate(-50%,-50%) scale(1); }
-    to   { transform: translate(-50%,-50%) scale(1.08); }
-  }
-  #placeHint {
-    position: fixed; bottom: 14%; left: 50%; transform: translateX(-50%);
-    z-index: 10; background: rgba(0,0,0,0.55); color: #fff; padding: 10px 18px;
-    border-radius: 999px; font-size: 13px; pointer-events: none;
+  #startOverlay h1 { font-size: 20px; margin: 0; }
+  #startOverlay p { font-size: 12.5px; opacity: 0.85; max-width: 320px; line-height: 1.7; margin: 0; }
+  #startOverlay img { width: 160px; border-radius: 8px; border: 2px solid #fff; }
+  #startBtn {
+    padding: 14px 40px; font-size: 16px; border: none; border-radius: 999px;
+    background: #ffb703; color: #1a1a1a; font-weight: bold;
   }
   #debugPanel {
     position: fixed; bottom: env(safe-area-inset-bottom, 6px); left: 8px; right: 8px; z-index: 50;
     background: rgba(0,0,0,0.7); color: #a0ffb0; font-size: 10px; font-family: monospace;
-    border-radius: 8px; max-height: 30vh; display: flex; flex-direction: column;
+    border-radius: 8px; max-height: 32vh; display: none; flex-direction: column;
   }
-  #debugLogText {
-    padding: 6px 8px; overflow-y: auto; white-space: pre-wrap; line-height: 1.4; flex: 1;
-  }
+  #debugLogText { padding: 6px 8px; overflow-y: auto; white-space: pre-wrap; line-height: 1.4; flex: 1; }
   #debugCopyBtn {
     margin: 4px 6px 6px; padding: 4px 10px; font-size: 10px; border: none; border-radius: 6px;
     background: #2a6b4a; color: #cfffe0; align-self: flex-end;
   }
-
-  /* 終了画面 */
-  #resultScreen { background: rgba(5,15,25,0.94); gap: 10px; }
-  #resultList { max-height: 40vh; overflow-y: auto; width: 100%; max-width: 340px; }
-  .resultRow { display: flex; justify-content: space-between; padding: 6px 4px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.1); }
-
-  /* 図鑑 */
-  #galleryListScreen { background: #0a1f33; justify-content: flex-start; padding-top: env(safe-area-inset-top, 20px); }
-  #galleryGrid {
-    display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; width: 100%; max-width: 380px; margin-top: 16px;
+  #statusPill {
+    position: fixed; top: env(safe-area-inset-top, 10px); left: 50%; transform: translateX(-50%);
+    z-index: 15; background: rgba(0,0,0,0.55); color: #fff; padding: 8px 16px; border-radius: 999px;
+    font-size: 12px; display: none;
   }
-  .fishCard {
-    background: rgba(255,255,255,0.08); border-radius: 14px; padding: 12px; font-size: 12px;
-    display: flex; flex-direction: column; align-items: center; gap: 6px;
-  }
-  .fishCard.locked { opacity: 0.35; }
-  .fishSwatch { width: 40px; height: 40px; border-radius: 50%; }
-  .backBtn {
-    position: fixed; top: env(safe-area-inset-top, 14px); left: 14px; z-index: 31;
-    background: rgba(0,0,0,0.5); color: #fff; border: none; border-radius: 999px;
-    padding: 9px 18px; font-size: 13px;
-  }
-
-  /* 鑑賞ビュー */
-  #galleryViewScreen { background: #05121f; padding: 0; }
-  #viewCanvasWrap { width: 100%; height: 62%; position: relative; }
-  #viewCanvas { width: 100%; height: 100%; display: block; }
-  #galleryViewInfo { padding: 14px; }
-  #galleryViewInfo h2 { margin: 0 0 6px; font-size: 18px; }
-  #galleryViewInfo p { margin: 0 0 14px; font-size: 12px; opacity: 0.75; }
 </style>
 </head>
 <body>
 
-<!-- タイトル画面 -->
-<div id="titleScreen" class="screen">
-  <h1>🎏 ARデジタル金魚すくい</h1>
-  <p>スマホを動かしてポイで金魚をすくおう。ポイに金魚が触れたら、少し待ってから傾けて中央にキープしてすくいきってね。</p>
-  <div id="coinDisplayTitle">🪙 コイン: <span id="coinCountTitle">0</span></div>
-  <button id="startMarkerBtn" class="bigBtn">バーコードマーカーで遊ぶ（推奨）</button>
-  <button id="startSlamBtn" class="subBtn">マーカーなしで遊ぶ（お手軽・床認識）</button>
-  <button id="showMarkerInfoBtn" class="subBtn">マーカーを準備する</button>
-  <button id="openGalleryBtn" class="subBtn">図鑑・鑑賞モード</button>
-  <label id="autoBuffRow">
-    <input type="checkbox" id="autoBuffCheckbox"> すくう時コインで自動強化する（1回10コイン）
-  </label>
+<div id="startOverlay">
+  <h1>🎏 MindAR プロトタイプ</h1>
+  <p>MindAR公式のサンプルマーカー(下の画像)を印刷するか、別の画面に表示して映してテストするのら。まずはカメラ映像・ポイ表示・マーカー検出ログの確認だけが目的やで。</p>
+  <img src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.1.4/examples/image-tracking/assets/card-example/card.png" alt="サンプルマーカー">
+  <button id="startBtn">ARをはじめる</button>
 </div>
 
-<!-- マーカー準備案内 -->
-<div id="markerInfoScreen" class="screen hidden" style="justify-content:flex-start; padding-top: env(safe-area-inset-top, 16px); overflow-y:auto;">
-  <h1 style="font-size:17px; margin-bottom:4px;">🖨️ マーカーを準備しよう</h1>
-  <p style="font-size:12px; line-height:1.6; max-width:340px; margin:4px 0 8px;">
-    このアプリがその場で作った、3種類のオリジナルマーカーやで。この画面をスクリーンショットして印刷するか、そのままこの画面をたらいの縁に近づけて使ってもOKなのら。3枚を10cm四方くらいにまとめて貼ると精度が上がるで。床でも壁でも同じマーカーでそのまま使えるで。
-  </p>
-  <div id="markerCanvasContainer" style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; max-width:400px;">生成中…</div>
-  <button id="markerInfoBackBtn" class="bigBtn" style="margin:14px 0;">タイトルへ戻る</button>
-</div>
+<div id="statusPill">マーカーを探しています...</div>
 
-<!-- AR中HUD -->
-<div id="hud" class="hidden">
-  <div class="hudPill">⏱️ <span id="timerDisplay">--</span>秒</div>
-  <div class="hudPill">🪙 <span id="coinCountHud">0</span></div>
-</div>
-<div id="catchBanner"></div>
-<div id="liftBanner" class="hidden">引き上げろ！</div>
-<div id="placeHint" class="hidden">床やたらいをタップして金魚すくいスポットを置いてね</div>
 <div id="debugPanel">
   <div id="debugLogText">ログ待機中...</div>
   <button id="debugCopyBtn">ログ全部をコピー</button>
 </div>
 
-<!-- 結果画面 -->
-<div id="resultScreen" class="screen hidden">
-  <h1>🏁 タイムアップ！</h1>
-  <p id="resultSummary" style="font-size:14px;"></p>
-  <div id="resultList"></div>
-  <button id="resultBackBtn" class="bigBtn">タイトルへ戻る</button>
-</div>
-
-<!-- 図鑑一覧 -->
-<div id="galleryListScreen" class="screen hidden">
-  <h1 style="font-size:18px;">📖 金魚図鑑</h1>
-  <div id="galleryGrid"></div>
-</div>
-
-<!-- 鑑賞ビュー -->
-<div id="galleryViewScreen" class="screen hidden">
-  <div id="viewCanvasWrap"><canvas id="viewCanvas"></canvas></div>
-  <div id="galleryViewInfo">
-    <h2 id="viewFishName">-</h2>
-    <p id="viewFishDesc">-</p>
-    <button id="summonArBtn" class="bigBtn">ARで部屋に召喚する</button>
-  </div>
-</div>
-
-<button id="backToTitleFromGallery" class="backBtn hidden">← タイトル</button>
-<button id="backToGalleryFromView" class="backBtn hidden">← 図鑑</button>
-
 <script>
-window.addEventListener('error', (e) => {
-  log('JSエラー: ' + e.message + ' @' + (e.filename || '?') + ':' + (e.lineno || '?'));
-});
-window.addEventListener('unhandledrejection', (e) => {
-  log('Promiseエラー: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
-});
-
-/* =========================================================
-   データ定義
-========================================================= */
-const FISH_TYPES = [
-  { id: 'wakin',    name: '和金',       rarity: 'common',   color: 0xff6b4a, wildness: 1.0, value: 10, desc: '一番よく見かける元気な金魚。' },
-  { id: 'demekin',  name: '出目金',     rarity: 'common',   color: 0x2b2b2b, wildness: 1.05, value: 10, desc: '目玉が大きくてちょっと不思議な顔。' },
-  { id: 'ryukin',   name: '琉金',       rarity: 'uncommon', color: 0xff9ecb, wildness: 1.25, value: 20, desc: '丸い体でひらひら優雅に泳ぐ。' },
-  { id: 'ranchu',   name: 'らんちゅう', rarity: 'uncommon', color: 0xffcf4a, wildness: 1.3,  value: 20, desc: '背びれがなく、貫禄のある泳ぎ方。' },
-  { id: 'ayakashi', name: 'あやかし金魚', rarity: 'rare',    color: 0x66ffe0, wildness: 1.7,  value: 50, desc: '祭りの夜にだけ現れるという幻の金魚。', emissive: true },
-];
-const RARITY_WEIGHT = { common: 60, uncommon: 30, rare: 10 };
-
-function pickRandomFishType() {
-  const total = FISH_TYPES.reduce((s, f) => s + RARITY_WEIGHT[f.rarity], 0);
-  let r = Math.random() * total;
-  for (const f of FISH_TYPES) {
-    r -= RARITY_WEIGHT[f.rarity];
-    if (r <= 0) return f;
+  const logLines = [];
+  function log(msg) {
+    const t = new Date().toLocaleTimeString('ja-JP');
+    logLines.push(`[${t}] ${msg}`);
+    const el = document.getElementById('debugLogText');
+    el.textContent = logLines.join('\n');
+    el.scrollTop = el.scrollHeight;
+    console.log(msg);
   }
-  return FISH_TYPES[0];
-}
+  window.addEventListener('error', (e) => {
+    log('JSエラー: ' + e.message + ' @' + (e.filename || '?') + ':' + (e.lineno || '?'));
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    log('Promiseエラー: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
 
-/* =========================================================
-   ローカル保存（コイン・図鑑）
-========================================================= */
-const STORAGE_COINS = 'kingyo_coins_v1';
-const STORAGE_COLLECTION = 'kingyo_collection_v1';
-
-function loadCoins() { return parseInt(localStorage.getItem(STORAGE_COINS) || '0', 10); }
-function saveCoins(v) { localStorage.setItem(STORAGE_COINS, String(v)); }
-function loadCollection() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_COLLECTION) || '{}'); }
-  catch (e) { return {}; }
-}
-function saveCollection(obj) { localStorage.setItem(STORAGE_COLLECTION, JSON.stringify(obj)); }
-
-let coins = loadCoins();
-let collection = loadCollection();
-
-function addCoins(v) {
-  coins += v;
-  saveCoins(coins);
-  refreshCoinDisplays();
-}
-function spendCoins(v) {
-  if (coins < v) return false;
-  coins -= v;
-  saveCoins(coins);
-  refreshCoinDisplays();
-  return true;
-}
-function registerCatch(fishType) {
-  collection[fishType.id] = (collection[fishType.id] || 0) + 1;
-  saveCollection(collection);
-}
-function refreshCoinDisplays() {
-  document.getElementById('coinCountTitle').textContent = coins;
-  document.getElementById('coinCountHud').textContent = coins;
-}
-
-/* =========================================================
-   共通ログ・ステータス
-========================================================= */
-const debugLogText = document.getElementById('debugLogText');
-const logLines = [];
-function log(msg) {
-  const t = new Date().toLocaleTimeString('ja-JP');
-  logLines.push(`[${t}] ${msg}`);
-  debugLogText.textContent = logLines.join('\n');
-  debugLogText.scrollTop = debugLogText.scrollHeight; // 常に最新行が見える位置へ自動スクロール
-  console.log(msg);
-}
-document.getElementById('debugCopyBtn').addEventListener('click', () => {
-  const text = logLines.join('\n');
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
-      const btn = document.getElementById('debugCopyBtn');
-      const original = btn.textContent;
-      btn.textContent = 'コピーしたで！';
-      setTimeout(() => { btn.textContent = original; }, 1200);
-    }).catch(() => {
-      window.prompt('コピーできんかったから、これを手動で選択してコピーしてや', text);
-    });
-  } else {
-    window.prompt('これを手動で選択してコピーしてや', text);
-  }
-});
-
-/* =========================================================
-   画面切り替え
-========================================================= */
-function showScreen(id) {
-  document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
-  if (id) document.getElementById(id).classList.remove('hidden');
-}
-
-/* =========================================================
-   端末の傾き（ジャイロ）
-========================================================= */
-let latestOrientation = { beta: 0, gamma: 0 };
-let orientationReady = false;
-
-function handleOrientation(e) {
-  latestOrientation = { beta: e.beta || 0, gamma: e.gamma || 0 };
-  orientationReady = true;
-}
-
-function requestOrientationPermission() {
-  return new Promise((resolve) => {
-    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-      DeviceOrientationEvent.requestPermission().then((state) => {
-        if (state === 'granted') {
-          window.addEventListener('deviceorientation', handleOrientation);
-        }
-        resolve();
-      }).catch(() => resolve());
-    } else if ('DeviceOrientationEvent' in window) {
-      window.addEventListener('deviceorientation', handleOrientation);
-      resolve();
+  document.getElementById('debugCopyBtn').addEventListener('click', () => {
+    const text = logLines.join('\n');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('debugCopyBtn');
+        const original = btn.textContent;
+        btn.textContent = 'コピーしたで！';
+        setTimeout(() => { btn.textContent = original; }, 1200);
+      }).catch(() => window.prompt('手動でコピーしてや', text));
     } else {
-      resolve();
+      window.prompt('手動でコピーしてや', text);
     }
   });
-}
 
-/* =========================================================
-   タイトル画面のボタン
-========================================================= */
-refreshCoinDisplays();
+  log('スクリプト評価開始');
 
-document.getElementById('startMarkerBtn').addEventListener('click', async () => {
-  await requestOrientationPermission();
-  showScreen(null);
-  document.getElementById('hud').classList.remove('hidden');
-  document.getElementById('placeHint').textContent = '準備したマーカーにカメラを向けてね';
-  document.getElementById('placeHint').classList.remove('hidden');
-  document.getElementById('debugPanel').classList.remove('hidden');
-  startMarkerCatchMode();
-});
-
-document.getElementById('startSlamBtn').addEventListener('click', async () => {
-  await requestOrientationPermission();
-  showScreen(null);
-  document.getElementById('hud').classList.remove('hidden');
-  document.getElementById('placeHint').textContent = '床やたらいをタップして金魚すくいスポットを置いてね';
-  document.getElementById('placeHint').classList.remove('hidden');
-  document.getElementById('debugPanel').classList.remove('hidden');
-  startArSession('catch', null);
-});
-
-document.getElementById('showMarkerInfoBtn').addEventListener('click', async () => {
-  showScreen('markerInfoScreen');
-  const container = document.getElementById('markerCanvasContainer');
-  container.innerHTML = '生成中…';
-  try {
-    const defs = await getMarkerDefs();
-    container.innerHTML = '';
-    defs.forEach((d, i) => {
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'display:flex; flex-direction:column; align-items:center; gap:4px;';
-      const label = document.createElement('div');
-      label.textContent = `マーカー${i + 1}（${d.name}）`;
-      label.style.cssText = 'font-size:11px; color:#fff;';
-      d.fullCanvas.style.cssText = 'width:150px; height:150px; border-radius:6px; display:block;';
-      wrap.appendChild(d.fullCanvas);
-      wrap.appendChild(label);
-      container.appendChild(wrap);
-    });
-    log('マーカー3種の生成完了');
-  } catch (e) {
-    container.innerHTML = '生成に失敗したのら…';
-    log('マーカー生成エラー: ' + e.message);
-  }
-});
-document.getElementById('markerInfoBackBtn').addEventListener('click', () => {
-  showScreen('titleScreen');
-});
-
-document.getElementById('openGalleryBtn').addEventListener('click', () => {
-  renderGalleryGrid();
-  showScreen('galleryListScreen');
-  document.getElementById('backToTitleFromGallery').classList.remove('hidden');
-});
-
-document.getElementById('backToTitleFromGallery').addEventListener('click', () => {
-  document.getElementById('backToTitleFromGallery').classList.add('hidden');
-  showScreen('titleScreen');
-});
-
-document.getElementById('resultBackBtn').addEventListener('click', () => {
-  // どちらのエンジン(8th Wall / AR.js)を使った後も、確実にクリーンな状態へ戻すため再読み込みする
-  location.reload();
-});
-
-/* =========================================================
-   スクリプトの動的読み込み(AR.js用)
-========================================================= */
-const loadedScripts = {};
-function loadScript(src) {
-  if (loadedScripts[src]) return loadedScripts[src];
-  loadedScripts[src] = new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = src;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error('script load failed: ' + src));
-    document.head.appendChild(s);
-  });
-  return loadedScripts[src];
-}
-
-/* =========================================================
-   マーカーの自前生成
-   AR.js公式チーム配布の @ar-js-org/marker-creator (encodeImageURL) を使い、
-   こちらで描いた図形から正規のパターンマーカーデータをその場で作る。
-   ネット上の画像URLを推測して埋め込むよりずっと安全・確実なのら。
-========================================================= */
-function loadMarkerCreatorLib() {
-  return loadScript('https://cdn.jsdelivr.net/gh/AR-js-org/Marker-Creator@main/dist/marker-creator.umd.js');
-}
-
-function drawIconCanvas(shapeFn, size) {
-  size = size || 256;
-  const c = document.createElement('canvas');
-  c.width = size; c.height = size;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, size, size);
-  ctx.fillStyle = '#000000';
-  shapeFn(ctx, size);
-  return c;
-}
-
-// 回転させても見分けがつくよう、あえて非対称な図形にしてあるのら
-const MARKER_SHAPES = [
-  {
-    name: '三角',
-    fn: (ctx, s) => {
-      ctx.beginPath();
-      ctx.moveTo(s * 0.22, s * 0.18);
-      ctx.lineTo(s * 0.82, s * 0.5);
-      ctx.lineTo(s * 0.22, s * 0.82);
-      ctx.closePath();
-      ctx.fill();
-    },
-  },
-  {
-    name: '欠けひし形',
-    fn: (ctx, s) => {
-      ctx.save();
-      ctx.translate(s / 2, s / 2);
-      ctx.rotate(Math.PI / 4);
-      ctx.fillRect(-s * 0.3, -s * 0.3, s * 0.6, s * 0.6);
-      ctx.restore();
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.moveTo(s * 0.62, s * 0.16);
-      ctx.lineTo(s * 0.88, s * 0.16);
-      ctx.lineTo(s * 0.62, s * 0.42);
-      ctx.closePath();
-      ctx.fill();
-    },
-  },
-  {
-    name: '非対称十字',
-    fn: (ctx, s) => {
-      const armW = s * 0.22;
-      ctx.fillRect(s / 2 - armW / 2, s * 0.14, armW, s * 0.5);
-      ctx.fillRect(s * 0.14, s / 2 - armW / 2, s * 0.72, armW);
-    },
-  },
-];
-
-function buildFullMarkerCanvas(iconCanvas, size, patternRatio) {
-  size = size || 512;
-  patternRatio = patternRatio || 0.5;
-  const c = document.createElement('canvas');
-  c.width = size; c.height = size;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, size, size);
-  const inner = size * patternRatio;
-  const offset = (size - inner) / 2;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(offset, offset, inner, inner);
-  ctx.drawImage(iconCanvas, offset, offset, inner, inner);
-  return c;
-}
-
-function encodeIconToPatternUrl(iconCanvas) {
-  return new Promise((resolve, reject) => {
-    try {
-      const dataUrl = iconCanvas.toDataURL('image/png');
-      window.MarkerCreator.ArPatternFile.encodeImageURL(dataUrl, (patternFileString) => {
-        resolve('data:text/plain;base64,' + btoa(patternFileString));
-      });
-    } catch (e) { reject(e); }
-  });
-}
-
-let markerDefsPromise = null;
-function getMarkerDefs() {
-  if (markerDefsPromise) return markerDefsPromise;
-  markerDefsPromise = (async () => {
-    await loadMarkerCreatorLib();
-    const defs = [];
-    for (const shape of MARKER_SHAPES) {
-      const icon = drawIconCanvas(shape.fn);
-      const full = buildFullMarkerCanvas(icon);
-      const patternUrl = await encodeIconToPatternUrl(icon);
-      defs.push({ name: shape.name, fullCanvas: full, patternUrl });
-    }
-    return defs;
-  })();
-  return markerDefsPromise;
-}
-
-/* =========================================================
-   図鑑一覧
-========================================================= */
-function renderGalleryGrid() {
-  const grid = document.getElementById('galleryGrid');
-  grid.innerHTML = '';
-  FISH_TYPES.forEach((f) => {
-    const count = collection[f.id] || 0;
-    const card = document.createElement('div');
-    card.className = 'fishCard' + (count > 0 ? '' : ' locked');
-    const swatch = document.createElement('div');
-    swatch.className = 'fishSwatch';
-    swatch.style.background = count > 0 ? `#${f.color.toString(16).padStart(6, '0')}` : '#555';
-    card.appendChild(swatch);
-    const nameEl = document.createElement('div');
-    nameEl.textContent = count > 0 ? f.name : '？？？';
-    card.appendChild(nameEl);
-    const countEl = document.createElement('div');
-    countEl.style.opacity = '0.7';
-    countEl.textContent = count > 0 ? `${count}匹すくった` : '未捕獲';
-    card.appendChild(countEl);
-    if (count > 0) {
-      card.addEventListener('click', () => openGalleryView(f));
-    }
-    grid.appendChild(card);
-  });
-}
-
-/* =========================================================
-   鑑賞ビュー（AR無し・素のThree.js）
-========================================================= */
-let viewRenderer = null, viewScene = null, viewCamera = null, viewFishGroup = null;
-let viewDragging = false, viewLastX = 0;
-let currentViewFish = null;
-
-function openGalleryView(fishType) {
-  currentViewFish = fishType;
-  document.getElementById('viewFishName').textContent = fishType.name;
-  document.getElementById('viewFishDesc').textContent = fishType.desc;
-  showScreen('galleryViewScreen');
-  document.getElementById('backToTitleFromGallery').classList.add('hidden');
-  document.getElementById('backToGalleryFromView').classList.remove('hidden');
-  initViewRenderer();
-  if (viewFishGroup) viewScene.remove(viewFishGroup);
-  viewFishGroup = createFishMesh(fishType, 1.0);
-  viewScene.add(viewFishGroup);
-}
-
-document.getElementById('backToGalleryFromView').addEventListener('click', () => {
-  document.getElementById('backToGalleryFromView').classList.add('hidden');
-  document.getElementById('backToTitleFromGallery').classList.remove('hidden');
-  showScreen('galleryListScreen');
-});
-
-function initViewRenderer() {
-  const canvas = document.getElementById('viewCanvas');
-  const wrap = document.getElementById('viewCanvasWrap');
-  const w = wrap.clientWidth, h = wrap.clientHeight;
-
-  if (!viewRenderer) {
-    viewRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    viewScene = new THREE.Scene();
-    viewCamera = new THREE.PerspectiveCamera(45, w / h, 0.01, 10);
-    viewCamera.position.set(0, 0.05, 0.5);
-    viewScene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.3));
-    const d = new THREE.DirectionalLight(0xffffff, 0.7);
-    d.position.set(1, 1, 1);
-    viewScene.add(d);
-
-    canvas.addEventListener('pointerdown', (e) => { viewDragging = true; viewLastX = e.clientX; });
-    window.addEventListener('pointerup', () => { viewDragging = false; });
-    window.addEventListener('pointermove', (e) => {
-      if (!viewDragging || !viewFishGroup) return;
-      const dx = e.clientX - viewLastX;
-      viewFishGroup.rotation.y += dx * 0.01;
-      viewLastX = e.clientX;
-    });
-
-    const clock = new THREE.Clock();
-    function animateView() {
-      requestAnimationFrame(animateView);
-      if (document.getElementById('galleryViewScreen').classList.contains('hidden')) return;
-      const dt = clock.getDelta();
-      if (viewFishGroup && !viewDragging) viewFishGroup.rotation.y += dt * 0.4;
-      if (viewFishGroup) viewFishGroup.position.y = Math.sin(clock.elapsedTime * 1.5) * 0.02;
-      viewRenderer.render(viewScene, viewCamera);
-    }
-    animateView();
-  }
-  viewRenderer.setSize(w, h, false);
-  viewCamera.aspect = w / h;
-  viewCamera.updateProjectionMatrix();
-}
-
-document.getElementById('summonArBtn').addEventListener('click', async () => {
-  await requestOrientationPermission();
-  showScreen(null);
-  document.getElementById('placeHint').classList.remove('hidden');
-  document.getElementById('debugPanel').classList.remove('hidden');
-  startArSession('summon', currentViewFish);
-});
-
-/* =========================================================
-   捕獲バナー表示（両エンジン共通）
-========================================================= */
-function showBanner(text) {
-  const el = document.getElementById('catchBanner');
-  el.textContent = text;
-  el.style.opacity = '1';
-  setTimeout(() => { el.style.opacity = '0'; }, 900);
-}
-
-/* =========================================================
-   金魚メッシュ生成
-========================================================= */
-function createFishMesh(fishType, scale) {
-  const group = new THREE.Group();
-  const s = scale || 0.09;
-
-  const bodyMat = new THREE.MeshStandardMaterial({
-    color: fishType.color,
-    emissive: fishType.emissive ? fishType.color : 0x000000,
-    emissiveIntensity: fishType.emissive ? 0.5 : 0,
-    roughness: 0.4, metalness: 0.1,
+  document.getElementById('startBtn').addEventListener('click', () => {
+    document.getElementById('startOverlay').style.display = 'none';
+    document.getElementById('debugPanel').style.display = 'flex';
+    document.getElementById('statusPill').style.display = 'block';
+    startAR();
   });
 
-  const body = new THREE.Mesh(new THREE.SphereGeometry(s, 16, 12), bodyMat);
-  body.scale.set(1.0, 0.7, 1.6);
-  group.add(body);
+  function startAR() {
+    log('A-Frameシーンを構築');
 
-  const tail = new THREE.Mesh(new THREE.ConeGeometry(s * 0.9, s * 1.3, 8), bodyMat);
-  tail.rotation.z = Math.PI / 2;
-  tail.position.set(0, 0, -s * 1.5);
-  tail.name = 'tail';
-  group.add(tail);
-
-  const eyeGeo = new THREE.SphereGeometry(s * 0.12, 8, 8);
-  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-  const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
-  eyeL.position.set(s * 0.55, s * 0.15, s * 0.9);
-  const eyeR = eyeL.clone();
-  eyeR.position.x *= -1;
-  group.add(eyeL, eyeR);
-
-  group.userData.fishType = fishType;
-  return group;
-}
-
-/* =========================================================
-   ARセッション本体
-========================================================= */
-let engineReady = false;
-let extrasReady = false;
-let arMode = 'catch'; // 'catch' | 'summon'
-let summonFishType = null;
-
-function startArSession(mode, fishType) {
-  arMode = mode;
-  summonFishType = fishType;
-  initEngineCheckAndStart();
-}
-
-function initEngineCheckAndStart() {
-  function tryStart() { if (engineReady && extrasReady) onxrloaded(); }
-
-  if (window.XR8) { engineReady = true; } else {
-    window.addEventListener('xrloaded', () => { engineReady = true; tryStart(); });
-  }
-  if (window.XRExtras) { extrasReady = true; } else {
-    window.addEventListener('xrextrasloaded', () => { extrasReady = true; tryStart(); });
-  }
-  tryStart();
-
-  setTimeout(() => {
-    if (!engineReady || !extrasReady) log(`10秒経過。XR8:${engineReady} XRExtras:${extrasReady}`);
-  }, 10000);
-}
-
-function onxrloaded() {
-  log('エンジン一式の読み込み確認OK / モード=' + arMode);
-
-  XR8.addCameraPipelineModules([
-    XR8.GlTextureRenderer.pipelineModule(),
-    XR8.Threejs.pipelineModule(),
-    XR8.XrController.pipelineModule(),
-    XRExtras.FullWindowCanvas.pipelineModule(),
-    XRExtras.Loading.pipelineModule(),
-    XRExtras.RuntimeError.pipelineModule(),
-    goldfishGamePipelineModule(),
-  ]);
-
-  const canvas = document.createElement('canvas');
-  canvas.id = 'camerafeed';
-  document.body.appendChild(canvas);
-
-  XR8.run({ canvas, allowedDevices: XR8.XrConfig.device().ANY });
-}
-
-/* =========================================================
-   ゲーム本体パイプライン
-========================================================= */
-function goldfishGamePipelineModule() {
-  let scene, camera;
-  let poiGroup, poiPaper;
-  let anchorGroup = null;       // たらい設置後のアンカー（フリー金魚の親）
-  let placed = false;
-  let freeFish = [];            // {mesh, basePos, phase, speed, radius, invulnerable}
-  let heldFish = null;          // 捕獲中の1匹 {mesh, type, holdTimer, balance:{x,y}, baseline, buffed}
-  const clock = new THREE.Clock();
-
-  const ROUND_SECONDS = 70;
-  let timeLeft = ROUND_SECONDS;
-  let roundActive = false;
-  const caughtThisRound = {};
-
-  const CATCH_RADIUS = 0.08;     // ポイに触れたと判定する距離
-  const HOLD_RADIUS = 0.025;     // これより中心に近ければキープ扱い
-  const ESCAPE_RADIUS = 0.058;   // これを超えたら逃げられる（紙面の縁あたり）
-  const REQUIRED_HOLD = 1.1;     // 何秒キープしたら成功か
-  const LIFT_DURATION = 2.0;     // 捕捉→水面から引き上げるまでの猶予(秒)
-  const TILT_ACCEL = 0.05;       // 傾きが与える加速度の強さ
-  const WANDER_ACCEL_BASE = 0.3; // 金魚の暴れが与える加速度の強さ
-  const FRICTION_PER_SEC = 3.2;  // 摩擦の強さ(大きいほどすぐ減速する)
-  const MAX_SPEED = 0.22;        // 金魚が出せる最大速度
-
-  function setupPoi() {
-    poiGroup = new THREE.Group();
-
-    // リング・紙面は回転させず、スマホ画面と平行な板として見えるようにする
-    const ringGeo = new THREE.TorusGeometry(0.07, 0.005, 12, 32);
-    const ringMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.5 });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    poiGroup.add(ring);
-
-    const paperGeo = new THREE.CircleGeometry(0.065, 32);
-    const paperMat = new THREE.MeshStandardMaterial({
-      color: 0xfff6e0, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
-    });
-    poiPaper = new THREE.Mesh(paperGeo, paperMat);
-    poiPaper.position.z = -0.004;
-    poiGroup.add(poiPaper);
-
-    // 持ち手はリングの下からプレイヤー側(カメラ側)に伸びる形に
-    const handleGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.2, 8);
-    const handleMat = new THREE.MeshStandardMaterial({ color: 0x8a5a2b });
-    const handle = new THREE.Mesh(handleGeo, handleMat);
-    handle.rotation.x = Math.PI / 2;
-    handle.position.set(0, -0.075, 0.11);
-    poiGroup.add(handle);
-
-    // スマホの少し上・少し先、画面とほぼ平行に固定
-    poiGroup.position.set(0, 0.06, -0.3);
-    camera.add(poiGroup);
-  }
-
-  function placeAnchor(position) {
-    anchorGroup = new THREE.Group();
-    anchorGroup.position.copy(position);
-    scene.add(anchorGroup);
-
-    // 水面(たらい)の見た目
-    const waterGeo = new THREE.CircleGeometry(0.28, 40);
-    const waterMat = new THREE.MeshStandardMaterial({
-      color: 0x4fb0d6, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
-    });
-    const water = new THREE.Mesh(waterGeo, waterMat);
-    water.rotation.x = -Math.PI / 2;
-    anchorGroup.add(water);
-
-    const rimGeo = new THREE.TorusGeometry(0.28, 0.012, 10, 40);
-    const rimMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
-    const rim = new THREE.Mesh(rimGeo, rimMat);
-    rim.rotation.x = Math.PI / 2;
-    anchorGroup.add(rim);
-
-    placed = true;
-    document.getElementById('placeHint').classList.add('hidden');
-
-    if (arMode === 'catch') {
-      for (let i = 0; i < 5; i++) spawnFreeFish();
-      roundActive = true;
-      timeLeft = ROUND_SECONDS;
-      log('たらい設置完了。ラウンド開始');
-    } else if (arMode === 'summon') {
-      spawnSummonFish();
-      log('たらい設置完了。召喚モード表示中');
-    }
-  }
-
-  function spawnFreeFish() {
-    const type = pickRandomFishType();
-    const mesh = createFishMesh(type, 0.014 + Math.random() * 0.006);
-    anchorGroup.add(mesh);
-    freeFish.push({
-      mesh, type,
-      basePos: new THREE.Vector3((Math.random() - 0.5) * 0.35, 0.01, (Math.random() - 0.5) * 0.35),
-      phase: Math.random() * Math.PI * 2,
-      speed: 0.6 + Math.random() * 0.4,
-      radius: 0.05 + Math.random() * 0.05,
-      invulnerable: 0,
-    });
-  }
-
-  function spawnSummonFish() {
-    const mesh = createFishMesh(summonFishType, 0.08);
-    anchorGroup.add(mesh);
-    freeFish.push({
-      mesh, type: summonFishType,
-      basePos: new THREE.Vector3(0, 0.03, 0),
-      phase: 0, speed: 0.5, radius: 0.12, invulnerable: 999999,
-    });
-  }
-
-  function tryGrab(fishEntry) {
-    // stage1 -> stage2 遷移。ポイのローカル座標系へ持ち替える
-    const worldPos = new THREE.Vector3();
-    fishEntry.mesh.getWorldPosition(worldPos);
-    anchorGroup.remove(fishEntry.mesh);
-    poiGroup.add(fishEntry.mesh);
-    fishEntry.mesh.position.set(0, -0.05, -0.004);
-
-    let buffed = false;
-    const autoBuff = document.getElementById('autoBuffCheckbox').checked;
-    if (autoBuff && spendCoins(10)) {
-      buffed = true;
-      refreshCoinDisplays();
-    }
-
-    heldFish = {
-      mesh: fishEntry.mesh,
-      type: fishEntry.type,
-      state: 'lifting',       // 'lifting' -> 'balancing'
-      liftTimer: 0,
-      holdTimer: 0,
-      balance: { x: 0, y: 0 },
-      velocity: { x: 0, y: 0 },
-      baseline: { beta: latestOrientation.beta, gamma: latestOrientation.gamma },
-      wander: { x: 0, y: 0 },
-      wanderTimer: 0,
-      buffed,
-    };
-    freeFish = freeFish.filter(f => f !== fishEntry);
-    document.getElementById('liftBanner').classList.remove('hidden');
-  }
-
-  function catchSuccess() {
-    document.getElementById('liftBanner').classList.add('hidden');
-    const type = heldFish.type;
-    const value = Math.round(type.value * (heldFish.buffed ? 1.5 : 1));
-    addCoins(value);
-    registerCatch(type);
-    caughtThisRound[type.id] = (caughtThisRound[type.id] || 0) + 1;
-    showBanner(`GET! ${type.name} (+${value}🪙)`);
-    poiGroup.remove(heldFish.mesh);
-    heldFish = null;
-    if (roundActive) setTimeout(spawnFreeFish, 500);
-  }
-
-  function catchFail() {
-    document.getElementById('liftBanner').classList.add('hidden');
-    const mesh = heldFish.mesh;
-    showBanner('にげられた！');
-    poiGroup.remove(mesh);
-    anchorGroup.add(mesh);
-    mesh.scale.setScalar(0.001);
-    const targetScale = mesh.userData.baseScale || 1;
-    let t = 0;
-    const grow = () => {
-      t += 0.05;
-      mesh.scale.setScalar(Math.min(1, t) * targetScale);
-      if (t < 1) requestAnimationFrame(grow);
-    };
-    const entry = {
-      mesh, type: heldFish.type,
-      basePos: new THREE.Vector3((Math.random() - 0.5) * 0.35, 0.01, (Math.random() - 0.5) * 0.35),
-      phase: Math.random() * Math.PI * 2,
-      speed: 0.6 + Math.random() * 0.4,
-      radius: 0.05 + Math.random() * 0.05,
-      invulnerable: 0.6,
-    };
-    mesh.position.copy(entry.basePos);
-    freeFish.push(entry);
-    grow();
-    heldFish = null;
-  }
-
-  function endRound() {
-    roundActive = false;
-    document.getElementById('hud').classList.add('hidden');
-    const total = Object.values(caughtThisRound).reduce((a, b) => a + b, 0);
-    document.getElementById('resultSummary').textContent = `合計 ${total}匹すくったで！`;
-    const listEl = document.getElementById('resultList');
-    listEl.innerHTML = '';
-    Object.keys(caughtThisRound).forEach((id) => {
-      const type = FISH_TYPES.find(f => f.id === id);
-      const row = document.createElement('div');
-      row.className = 'resultRow';
-      row.innerHTML = `<span>${type.name}</span><span>${caughtThisRound[id]}匹</span>`;
-      listEl.appendChild(row);
-    });
-    showScreen('resultScreen');
-  }
-
-  const onTap = (e) => {
-    if (placed) return;
-    const touch = e.touches ? e.touches[0] : e;
-    const x = touch.clientX / window.innerWidth;
-    const y = touch.clientY / window.innerHeight;
-    const results = XR8.XrController.hitTest(x, y, ['FEATURE_POINT']);
-    if (results && results.length > 0) {
-      const p = results[0].position;
-      placeAnchor(new THREE.Vector3(p.x, p.y, p.z));
-    }
-  };
-
-  return {
-    name: 'goldfishgame',
-    onStart: () => {
-      const xrScene = XR8.Threejs.xrScene();
-      scene = xrScene.scene;
-      camera = xrScene.camera;
-
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
-      const dir = new THREE.DirectionalLight(0xffffff, 0.6);
-      dir.position.set(0.5, 1, 0.3);
-      scene.add(dir);
-
-      setupPoi();
-
-      XR8.XrController.updateCameraProjectionMatrix({
-        origin: camera.position, facing: camera.quaternion,
-      });
-
-      window.addEventListener('touchstart', onTap);
-      log('ゲームシーン初期化完了。タップで設置待ち');
-    },
-    onUpdate: () => {
-      if (!placed) return;
-      const dt = Math.min(clock.getDelta(), 0.1);
-      const t = clock.elapsedTime;
-
-      // フリー金魚の遊泳アニメーション
-      freeFish.forEach((f) => {
-        f.invulnerable = Math.max(0, f.invulnerable - dt);
-        const angle = t * f.speed + f.phase;
-        f.mesh.position.set(
-          f.basePos.x + Math.cos(angle) * f.radius,
-          f.basePos.y + Math.sin(t * 3 + f.phase) * 0.004,
-          f.basePos.z + Math.sin(angle) * f.radius
-        );
-        f.mesh.rotation.y = -angle + Math.PI / 2;
-        const tailMesh = f.mesh.getObjectByName('tail');
-        if (tailMesh) tailMesh.rotation.y = Math.sin(t * 8 + f.phase) * 0.5;
-      });
-
-      // stage1: ポイとの接触判定（捕獲モードのみ / 無敵時間中は除外）
-      if (arMode === 'catch' && roundActive && !heldFish) {
-        const poiWorld = new THREE.Vector3();
-        poiGroup.getWorldPosition(poiWorld);
-        for (const f of freeFish) {
-          if (f.invulnerable > 0) continue;
-          const fishWorld = new THREE.Vector3();
-          f.mesh.getWorldPosition(fishWorld);
-          if (fishWorld.distanceTo(poiWorld) < CATCH_RADIUS) {
-            tryGrab(f);
-            break;
-          }
-        }
-      }
-
-      // stage2: 引き上げ猶予 → ポイの上でのバランス勝負
-      if (heldFish) {
-        if (heldFish.state === 'lifting') {
-          heldFish.liftTimer += dt;
-          const p = Math.min(1, heldFish.liftTimer / LIFT_DURATION);
-          const eased = 1 - Math.pow(1 - p, 2); // ease-out
-          const y = -0.05 + 0.05 * eased;
-          heldFish.mesh.position.set(0, y, -0.004);
-          if (p >= 1) {
-            heldFish.state = 'balancing';
-            document.getElementById('liftBanner').classList.add('hidden');
-            // 引き上げ完了時点をあらためて基準の傾きにする(不意打ちで即失敗しないように)
-            heldFish.baseline = { beta: latestOrientation.beta, gamma: latestOrientation.gamma };
-          }
-        } else if (heldFish.state === 'balancing') {
-          heldFish.wanderTimer -= dt;
-          if (heldFish.wanderTimer <= 0) {
-            heldFish.wanderTimer = 0.4 + Math.random() * 0.35;
-            const wildness = heldFish.type.wildness;
-            heldFish.wander.x = (Math.random() - 0.5) * WANDER_ACCEL_BASE * wildness;
-            heldFish.wander.y = (Math.random() - 0.5) * WANDER_ACCEL_BASE * wildness;
-          }
-          const delta = {
-            beta: latestOrientation.beta - heldFish.baseline.beta,
-            gamma: latestOrientation.gamma - heldFish.baseline.gamma,
-          };
-
-          // 傾き入力と金魚の暴れを「加速度」として速度に加える
-          const accelX = heldFish.wander.x + delta.gamma * TILT_ACCEL;
-          const accelY = heldFish.wander.y - delta.beta * TILT_ACCEL;
-          heldFish.velocity.x += accelX * dt;
-          heldFish.velocity.y += accelY * dt;
-
-          // 摩擦(指数減衰)で速度を減らす。これが「重さ」「粘り」を生む
-          const damping = Math.exp(-FRICTION_PER_SEC * dt);
-          heldFish.velocity.x *= damping;
-          heldFish.velocity.y *= damping;
-
-          // 最大速度でクランプ(無限に加速しないように)
-          const speed = Math.hypot(heldFish.velocity.x, heldFish.velocity.y);
-          if (speed > MAX_SPEED) {
-            heldFish.velocity.x *= MAX_SPEED / speed;
-            heldFish.velocity.y *= MAX_SPEED / speed;
-          }
-
-          heldFish.balance.x += heldFish.velocity.x * dt;
-          heldFish.balance.y += heldFish.velocity.y * dt;
-
-          const holdR = HOLD_RADIUS * (heldFish.buffed ? 1.4 : 1);
-          const escR = ESCAPE_RADIUS * (heldFish.buffed ? 1.25 : 1);
-          const reqHold = REQUIRED_HOLD * (heldFish.buffed ? 0.8 : 1);
-
-          const mag = Math.hypot(heldFish.balance.x, heldFish.balance.y);
-          if (mag > escR * 1.4) {
-            const scale = (escR * 1.4) / mag;
-            heldFish.balance.x *= scale;
-            heldFish.balance.y *= scale;
-          }
-          heldFish.mesh.position.set(heldFish.balance.x, heldFish.balance.y, -0.004);
-
-          if (mag < holdR) {
-            heldFish.holdTimer += dt;
-          } else {
-            heldFish.holdTimer = Math.max(0, heldFish.holdTimer - dt * 0.6);
-          }
-
-          if (heldFish.holdTimer >= reqHold) {
-            catchSuccess();
-          } else if (mag > escR) {
-            catchFail();
-          }
-        }
-      }
-
-      // タイマー
-      if (arMode === 'catch' && roundActive) {
-        timeLeft -= dt;
-        document.getElementById('timerDisplay').textContent = Math.max(0, Math.ceil(timeLeft));
-        if (timeLeft <= 0) endRound();
-      }
-    },
-  };
-}
-
-/* =========================================================
-   AR.js(バーコードマーカー)版ゲーム本体
-   桶の位置をマーカーに直接追従させることで、SLAM方式で起きていた
-   「桶がじわじわ動いてしまう」ドリフト問題を解消する。
-========================================================= */
-function startMarkerCatchMode() {
-  const CATCH_RADIUS = 0.08;
-  const HOLD_RADIUS = 0.025;
-  const ESCAPE_RADIUS = 0.058;
-  const REQUIRED_HOLD = 1.1;
-  const LIFT_DURATION = 2.0;
-  const TILT_ACCEL = 0.05;
-  const WANDER_ACCEL_BASE = 0.3;
-  const FRICTION_PER_SEC = 3.2;
-  const MAX_SPEED = 0.22;
-  const ROUND_SECONDS = 70;
-
-  let scene, camera;
-  let poiGroup;
-  let anchorGroup = null;
-  let placed = false;
-  let freeFish = [];
-  let heldFish = null;
-  let roundActive = false;
-  let timeLeft = ROUND_SECONDS;
-  const caughtThisRound = {};
-  const clock = new THREE.Clock();
-  let markerEls = [];
-
-  async function boot() {
-    try {
-      // まずAR.js抜きで、素のgetUserMediaが通るか単独チェックする
-      // (ブラウザの許可自体の問題か、AR.js内部の問題かを切り分けるため)
-      log('カメラ許可を単独テスト中...');
-      try {
-        const testStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-        });
-        log('カメラ許可OK(単独テスト成功)。トラック数=' + testStream.getVideoTracks().length);
-        testStream.getTracks().forEach(t => t.stop());
-        await new Promise(r => setTimeout(r, 300)); // 解放直後の競合を避ける小休止
-      } catch (camErr) {
-        log('カメラ許可NG(単独テスト失敗): ' + camErr.name + ' ' + camErr.message);
-        setStatusIfExists('カメラ許可が得られませんでした: ' + camErr.name);
-        return;
-      }
-
-      log('マーカーデータ生成開始');
-      const defs = await getMarkerDefs();
-      log('マーカーデータ生成OK。A-Frame読み込み開始');
-      await loadScript('https://aframe.io/releases/1.6.0/aframe.min.js');
-      log('A-Frame読み込みOK。AR.js読み込み開始');
-      await loadScript('https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.7/aframe/build/aframe-ar.js');
-      log('AR.js読み込みOK。シーン構築');
-      buildScene(defs);
-
-      // AR.js内部のvideo要素が実際に出来て再生されているか、数秒おきに確認する
-      let checkCount = 0;
-      const videoCheckTimer = setInterval(() => {
-        checkCount++;
-        const v = document.querySelector('#arjs-video, video');
-        if (v) {
-          const cs = getComputedStyle(v);
-          log(`video要素チェック#${checkCount}: readyState=${v.readyState} 幅=${v.videoWidth} 高さ=${v.videoHeight} paused=${v.paused} display=${cs.display} visibility=${cs.visibility} opacity=${cs.opacity} z=${cs.zIndex} pos=${cs.position}`);
-        } else {
-          log(`video要素チェック#${checkCount}: video要素が見つからない`);
-        }
-        if (checkCount >= 5) clearInterval(videoCheckTimer);
-      }, 2000);
-    } catch (e) {
-      log('マーカーAR初期化エラー: ' + e.message);
-    }
-  }
-
-  function setStatusIfExists(msg) {
-    const el = document.getElementById('placeHint');
-    if (el) { el.textContent = msg; el.classList.remove('hidden'); }
-  }
-
-  function buildScene(defs) {
-    const wrap = document.createElement('div');
-    wrap.id = 'arjsWrap';
-    const markersHtml = defs.map((d, i) => (
-      `<a-marker type="pattern" patternUrl="${d.patternUrl}" id="marker${i + 1}" ` +
-      `smooth="true" smoothCount="6" smoothTolerance="0.01" smoothThreshold="5"></a-marker>`
-    )).join('');
-
-    // カメラは(スマホの向きに関わらず)常に640x480の横向きでしか映像を出さない端末が多く、
-    // AR.js自身がその横向き映像を縦画面用に回転させて表示する仕組みを持っている。
-    // こちらで縦横を入れ替えて指定すると、その回転処理と噛み合わずに歪んでしまうため、
-    // 常にAR.js標準の640x480のままにして、回転はAR.js側の処理に任せる。
-    log('AR.js標準の解像度(640x480)のまま初期化。回転はAR.js側に任せる');
-
-    wrap.innerHTML = `
-      <a-scene id="arjsScene" embedded
-        arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono;"
-        vr-mode-ui="enabled: false" renderer="antialias: true; alpha: true">
-        ${markersHtml}
-        <a-entity camera></a-entity>
+    const sceneHtml = `
+      <a-scene mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.1.4/examples/image-tracking/assets/card-example/card.mind;"
+        color-space="sRGB"
+        renderer="colorManagement: true, physicallyCorrectLights"
+        vr-mode-ui="enabled: false"
+        device-orientation-permission-ui="enabled: false"
+        embedded
+        style="position:fixed; top:0; left:0; width:100%; height:100%; z-index:1;">
+        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+        <a-entity id="poiCamAnchor"></a-entity>
+        <a-entity id="markerTarget" mindar-image-target="targetIndex: 0">
+          <a-box position="0 0 0.1" scale="0.2 0.2 0.2" color="#4CC3D9"></a-box>
+        </a-entity>
       </a-scene>`;
-    document.body.appendChild(wrap);
+    document.body.insertAdjacentHTML('beforeend', sceneHtml);
 
-    const sceneEl = document.getElementById('arjsScene');
-    sceneEl.addEventListener('camera-init', (e) => {
-      log('カメラ映像の取得に成功(camera-init)');
-    });
-    sceneEl.addEventListener('camera-error', (e) => {
-      log('カメラ映像の取得に失敗(camera-error): ' + JSON.stringify(e.detail || {}));
-    });
+    const sceneEl = document.querySelector('a-scene');
+
     sceneEl.addEventListener('loaded', () => {
-      log('AR.jsシーン読み込み完了');
-      scene = sceneEl.object3D;
-      camera = sceneEl.camera;
-      markerEls = defs.map((d, i) => document.getElementById(`marker${i + 1}`));
-
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
-      const dir = new THREE.DirectionalLight(0xffffff, 0.6);
-      dir.position.set(0.5, 1, 0.3);
-      scene.add(dir);
-
-      setupPoi();
-      requestAnimationFrame(loop);
-
-      // AR.jsが最終的な画面サイズを掴めていないケースへの保険。
-      // 少し待ってからresizeを強制発火し、AR.js内部のサイズ再計算を促す
-      setTimeout(() => {
-        window.dispatchEvent(new Event('resize'));
-        forceCorrectCameraAspect();
-        log(`resize強制発火+アスペクト補正。canvas実サイズ=${document.querySelector('#arjsWrap canvas')?.width}x${document.querySelector('#arjsWrap canvas')?.height}`);
-      }, 600);
+      log('シーン読み込み完了(loaded)');
     });
-  }
+    sceneEl.addEventListener('arReady', () => {
+      log('MindARエンジン準備完了(arReady)');
+      setupPoi();
+    });
+    sceneEl.addEventListener('arError', (e) => {
+      log('MindARエラー(arError): ' + JSON.stringify(e.detail || {}));
+    });
 
-  function forceCorrectCameraAspect() {
-    if (!camera) return;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    // AR.js独自のキャリブレーション済み投影行列を、実画面サイズに合った
-    // 標準のThree.js透視投影に上書きする(ARとしての精度は落ちるが、歪みは消える)
-    camera.aspect = w / h;
-    if (!camera.fov) camera.fov = 60;
-    camera.updateProjectionMatrix();
+    const targetEl = document.getElementById('markerTarget');
+    targetEl.addEventListener('targetFound', () => {
+      log('マーカー検出(targetFound)');
+      document.getElementById('statusPill').textContent = 'マーカー検出中';
+    });
+    targetEl.addEventListener('targetLost', () => {
+      log('マーカー見失い(targetLost)');
+      document.getElementById('statusPill').textContent = 'マーカーを探しています...';
+    });
   }
 
   function setupPoi() {
-    poiGroup = new THREE.Group();
+    // カメラに追従するポイ(すくい網)を、8th Wall版と同じ構造で組む
+    const cameraEl = document.querySelector('a-camera');
+    if (!cameraEl || !cameraEl.object3D) {
+      log('カメラのobject3Dが取得できず、ポイ配置に失敗');
+      return;
+    }
+    const THREE = window.AFRAME.THREE;
+    const poiGroup = new THREE.Group();
 
     const ringGeo = new THREE.TorusGeometry(0.07, 0.005, 12, 32);
     const ringMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.5 });
@@ -1225,274 +173,13 @@ function startMarkerCatchMode() {
     poiGroup.add(handle);
 
     poiGroup.position.set(0, 0.06, -0.3);
-    camera.add(poiGroup);
-    log('ポイ配置完了(マーカーモード)');
+    cameraEl.object3D.add(poiGroup);
+
+    const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+    document.querySelector('a-scene').object3D.add(light);
+
+    log('ポイ配置完了');
   }
-
-  function populateAnchor() {
-    // 特定の1枚のマーカーに直接ぶら下げるのではなく、
-    // シーン直下に独立したグループを作り、毎フレーム複数マーカーの平均位置に追従させる
-    anchorGroup = new THREE.Group();
-    scene.add(anchorGroup);
-
-    const waterGeo = new THREE.CircleGeometry(0.28, 40);
-    const waterMat = new THREE.MeshStandardMaterial({
-      color: 0x4fb0d6, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
-    });
-    const water = new THREE.Mesh(waterGeo, waterMat);
-    water.rotation.x = -Math.PI / 2;
-    anchorGroup.add(water);
-
-    const rimGeo = new THREE.TorusGeometry(0.28, 0.012, 10, 40);
-    const rimMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
-    const rim = new THREE.Mesh(rimGeo, rimMat);
-    rim.rotation.x = Math.PI / 2;
-    anchorGroup.add(rim);
-
-    placed = true;
-    document.getElementById('placeHint').classList.add('hidden');
-    for (let i = 0; i < 5; i++) spawnFreeFish();
-    roundActive = true;
-    timeLeft = ROUND_SECONDS;
-    log('マーカー検出、たらい設置完了。ラウンド開始');
-  }
-
-  function spawnFreeFish() {
-    const type = pickRandomFishType();
-    const mesh = createFishMesh(type, 0.014 + Math.random() * 0.006);
-    anchorGroup.add(mesh);
-    freeFish.push({
-      mesh, type,
-      basePos: new THREE.Vector3((Math.random() - 0.5) * 0.35, 0.01, (Math.random() - 0.5) * 0.35),
-      phase: Math.random() * Math.PI * 2,
-      speed: 0.6 + Math.random() * 0.4,
-      radius: 0.05 + Math.random() * 0.05,
-      invulnerable: 0,
-    });
-  }
-
-  function tryGrab(fishEntry) {
-    anchorGroup.remove(fishEntry.mesh);
-    poiGroup.add(fishEntry.mesh);
-
-    // 「床か壁か」を分類するのではなく、桶の面(マーカー面)の法線を
-    // その瞬間のカメラのローカル座標系に変換して、そのまま引き上げ方向として使う。
-    // これなら桶がどんな角度にあっても、常に「桶の面から手前(ポイ側)へ持ち上がる」動きになる。
-    const anchorNormalWorld = new THREE.Vector3(0, 1, 0).applyQuaternion(anchorGroup.quaternion);
-    const camWorldQuat = new THREE.Quaternion();
-    camera.getWorldQuaternion(camWorldQuat);
-    const liftDir = anchorNormalWorld.clone().applyQuaternion(camWorldQuat.invert()).normalize();
-
-    const liftTo = { x: 0, y: 0, z: -0.004 };
-    const liftFrom = {
-      x: liftTo.x - liftDir.x * 0.05,
-      y: liftTo.y - liftDir.y * 0.05,
-      z: liftTo.z - liftDir.z * 0.05,
-    };
-    fishEntry.mesh.position.set(liftFrom.x, liftFrom.y, liftFrom.z);
-
-    let buffed = false;
-    const autoBuff = document.getElementById('autoBuffCheckbox').checked;
-    if (autoBuff && spendCoins(10)) { buffed = true; refreshCoinDisplays(); }
-
-    heldFish = {
-      mesh: fishEntry.mesh, type: fishEntry.type,
-      state: 'lifting', liftTimer: 0, holdTimer: 0, liftFrom, liftTo,
-      balance: { x: 0, y: 0 }, velocity: { x: 0, y: 0 },
-      baseline: { beta: latestOrientation.beta, gamma: latestOrientation.gamma },
-      wander: { x: 0, y: 0 }, wanderTimer: 0, buffed,
-    };
-    freeFish = freeFish.filter(f => f !== fishEntry);
-    document.getElementById('liftBanner').classList.remove('hidden');
-    log('捕捉。桶の面基準で引き上げ開始');
-  }
-
-  function catchSuccess() {
-    document.getElementById('liftBanner').classList.add('hidden');
-    const type = heldFish.type;
-    const value = Math.round(type.value * (heldFish.buffed ? 1.5 : 1));
-    addCoins(value);
-    registerCatch(type);
-    caughtThisRound[type.id] = (caughtThisRound[type.id] || 0) + 1;
-    showBanner(`GET! ${type.name} (+${value}🪙)`);
-    poiGroup.remove(heldFish.mesh);
-    heldFish = null;
-    if (roundActive) setTimeout(spawnFreeFish, 500);
-  }
-
-  function catchFail() {
-    document.getElementById('liftBanner').classList.add('hidden');
-    const mesh = heldFish.mesh;
-    showBanner('にげられた！');
-    poiGroup.remove(mesh);
-    anchorGroup.add(mesh);
-    const basePos = new THREE.Vector3((Math.random() - 0.5) * 0.35, 0.01, (Math.random() - 0.5) * 0.35);
-    mesh.position.copy(basePos);
-    mesh.scale.setScalar(0.001);
-    let t = 0;
-    const grow = () => {
-      t += 0.05;
-      mesh.scale.setScalar(Math.min(1, t));
-      if (t < 1) requestAnimationFrame(grow);
-    };
-    grow();
-    freeFish.push({
-      mesh, type: heldFish.type, basePos,
-      phase: Math.random() * Math.PI * 2,
-      speed: 0.6 + Math.random() * 0.4,
-      radius: 0.05 + Math.random() * 0.05,
-      invulnerable: 0.6,
-    });
-    heldFish = null;
-  }
-
-  function endRound() {
-    roundActive = false;
-    document.getElementById('hud').classList.add('hidden');
-    const total = Object.values(caughtThisRound).reduce((a, b) => a + b, 0);
-    document.getElementById('resultSummary').textContent = `合計 ${total}匹すくったで！`;
-    const listEl = document.getElementById('resultList');
-    listEl.innerHTML = '';
-    Object.keys(caughtThisRound).forEach((id) => {
-      const type = FISH_TYPES.find(f => f.id === id);
-      const row = document.createElement('div');
-      row.className = 'resultRow';
-      row.innerHTML = `<span>${type.name}</span><span>${caughtThisRound[id]}匹</span>`;
-      listEl.appendChild(row);
-    });
-    showScreen('resultScreen');
-  }
-
-  function updateAnchorFromMarkers() {
-    const visible = markerEls.filter(el => el.object3D.visible);
-    if (visible.length === 0) return false; // 全部見えなければ最後の位置を維持
-
-    if (!placed) populateAnchor();
-
-    const posSum = new THREE.Vector3();
-    const tmpPos = new THREE.Vector3();
-    const quats = [];
-    visible.forEach((el) => {
-      el.object3D.getWorldPosition(tmpPos);
-      posSum.add(tmpPos);
-      const q = new THREE.Quaternion();
-      el.object3D.getWorldQuaternion(q);
-      quats.push(q);
-    });
-    posSum.divideScalar(visible.length);
-
-    let avgQ = quats[0].clone();
-    for (let i = 1; i < quats.length; i++) avgQ.slerp(quats[i], 1 / (i + 1));
-
-    anchorGroup.position.copy(posSum);
-    anchorGroup.quaternion.copy(avgQ);
-    return true;
-  }
-
-  function loop() {
-    requestAnimationFrame(loop);
-    const dt = Math.min(clock.getDelta(), 0.1);
-    const t = clock.elapsedTime;
-
-    forceCorrectCameraAspect(); // AR.jsに毎フレーム上書きされても即座に直るようにする保険
-    updateAnchorFromMarkers();
-    if (!placed) return;
-
-    freeFish.forEach((f) => {
-      f.invulnerable = Math.max(0, f.invulnerable - dt);
-      const angle = t * f.speed + f.phase;
-      f.mesh.position.set(
-        f.basePos.x + Math.cos(angle) * f.radius,
-        f.basePos.y + Math.sin(t * 3 + f.phase) * 0.004,
-        f.basePos.z + Math.sin(angle) * f.radius
-      );
-      f.mesh.rotation.y = -angle + Math.PI / 2;
-      const tailMesh = f.mesh.getObjectByName('tail');
-      if (tailMesh) tailMesh.rotation.y = Math.sin(t * 8 + f.phase) * 0.5;
-    });
-
-    if (roundActive && !heldFish) {
-      const poiWorld = new THREE.Vector3();
-      poiGroup.getWorldPosition(poiWorld);
-      for (const f of freeFish) {
-        if (f.invulnerable > 0) continue;
-        const fishWorld = new THREE.Vector3();
-        f.mesh.getWorldPosition(fishWorld);
-        if (fishWorld.distanceTo(poiWorld) < CATCH_RADIUS) { tryGrab(f); break; }
-      }
-    }
-
-    if (heldFish) {
-      if (heldFish.state === 'lifting') {
-        heldFish.liftTimer += dt;
-        const p = Math.min(1, heldFish.liftTimer / LIFT_DURATION);
-        const eased = 1 - Math.pow(1 - p, 2);
-        const from = heldFish.liftFrom, to = heldFish.liftTo;
-        heldFish.mesh.position.set(
-          from.x + (to.x - from.x) * eased,
-          from.y + (to.y - from.y) * eased,
-          from.z + (to.z - from.z) * eased
-        );
-        if (p >= 1) {
-          heldFish.state = 'balancing';
-          document.getElementById('liftBanner').classList.add('hidden');
-          heldFish.baseline = { beta: latestOrientation.beta, gamma: latestOrientation.gamma };
-        }
-      } else if (heldFish.state === 'balancing') {
-        heldFish.wanderTimer -= dt;
-        if (heldFish.wanderTimer <= 0) {
-          heldFish.wanderTimer = 0.4 + Math.random() * 0.35;
-          const wildness = heldFish.type.wildness;
-          heldFish.wander.x = (Math.random() - 0.5) * WANDER_ACCEL_BASE * wildness;
-          heldFish.wander.y = (Math.random() - 0.5) * WANDER_ACCEL_BASE * wildness;
-        }
-        const delta = {
-          beta: latestOrientation.beta - heldFish.baseline.beta,
-          gamma: latestOrientation.gamma - heldFish.baseline.gamma,
-        };
-        const accelX = heldFish.wander.x + delta.gamma * TILT_ACCEL;
-        const accelY = heldFish.wander.y - delta.beta * TILT_ACCEL;
-        heldFish.velocity.x += accelX * dt;
-        heldFish.velocity.y += accelY * dt;
-        const damping = Math.exp(-FRICTION_PER_SEC * dt);
-        heldFish.velocity.x *= damping;
-        heldFish.velocity.y *= damping;
-        const speed = Math.hypot(heldFish.velocity.x, heldFish.velocity.y);
-        if (speed > MAX_SPEED) {
-          heldFish.velocity.x *= MAX_SPEED / speed;
-          heldFish.velocity.y *= MAX_SPEED / speed;
-        }
-        heldFish.balance.x += heldFish.velocity.x * dt;
-        heldFish.balance.y += heldFish.velocity.y * dt;
-
-        const holdR = HOLD_RADIUS * (heldFish.buffed ? 1.4 : 1);
-        const escR = ESCAPE_RADIUS * (heldFish.buffed ? 1.25 : 1);
-        const reqHold = REQUIRED_HOLD * (heldFish.buffed ? 0.8 : 1);
-        const mag = Math.hypot(heldFish.balance.x, heldFish.balance.y);
-        if (mag > escR * 1.4) {
-          const scale = (escR * 1.4) / mag;
-          heldFish.balance.x *= scale;
-          heldFish.balance.y *= scale;
-        }
-        heldFish.mesh.position.set(heldFish.balance.x, heldFish.balance.y, -0.004);
-
-        if (mag < holdR) heldFish.holdTimer += dt;
-        else heldFish.holdTimer = Math.max(0, heldFish.holdTimer - dt * 0.6);
-
-        if (heldFish.holdTimer >= reqHold) catchSuccess();
-        else if (mag > escR) catchFail();
-      }
-    }
-
-    if (roundActive) {
-      timeLeft -= dt;
-      document.getElementById('timerDisplay').textContent = Math.max(0, Math.ceil(timeLeft));
-      if (timeLeft <= 0) endRound();
-    }
-  }
-
-  boot();
-}
 </script>
 
 </body>
