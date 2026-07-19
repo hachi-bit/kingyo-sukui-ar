@@ -532,7 +532,7 @@ async function onxrloaded() {
   try {
     const targetData = await fetch('./image-targets/kingyo-marker.json').then(r => r.json());
     XR8.XrController.configure({
-      disableWorldTracking: false, // マーカーが見えない間もSLAMで位置を推定し続けるよう併用する
+      disableWorldTracking: true, // 射出式で近づく必要がなくなったため、SLAMドリフトを避けてマーカー基準に一本化
       imageTargetData: [targetData],
     });
     log('Image Target読み込みOK: ' + targetData.name);
@@ -650,7 +650,11 @@ function goldfishGamePipelineModule() {
     poiGroup.getWorldPosition(worldPos);
     const worldQuat = new THREE.Quaternion();
     camera.getWorldQuaternion(worldQuat);
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(worldQuat).normalize();
+    const camWorldPos = new THREE.Vector3();
+    camera.getWorldPosition(camWorldPos);
+    // 「カメラの正面」ではなく「カメラの目の位置から、ポイの照準マークが今ある場所を通る方向」に飛ばす。
+    // これで画面上の見た目(十字マークの位置)と、実際に飛んでいく方向がズレなくなる。
+    const dir = worldPos.clone().sub(camWorldPos).normalize();
 
     camera.remove(poiGroup);
     scene.add(poiGroup);
