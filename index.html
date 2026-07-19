@@ -7,6 +7,17 @@
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
     #camerafeed { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    #log-panel {
+      position: absolute; left: 0; right: 0; bottom: 0; max-height: 45%;
+      overflow-y: auto; background: rgba(0,0,0,0.85); color: #0f0;
+      font: 12px/1.4 monospace; padding: 8px; box-sizing: border-box;
+      z-index: 9999; white-space: pre-wrap; word-break: break-all;
+    }
+    #copy-log-btn {
+      position: absolute; right: 8px; bottom: calc(45% + 8px); z-index: 10000;
+      background: #222; color: #fff; border: 1px solid #666; border-radius: 6px;
+      padding: 8px 12px; font-size: 13px;
+    }
   </style>
 
   <!-- Three.js本体 -->
@@ -22,8 +33,55 @@
 </head>
 <body>
   <canvas id="camerafeed"></canvas>
+  <button id="copy-log-btn">ログ全部をコピー</button>
+  <div id="log-panel"></div>
 
   <script>
+    // ==== 画面上ログパネル(iPhoneでも実機のまま確認できるように) ====
+    const logPanel = document.getElementById('log-panel')
+    const logLines = []
+    const addLog = (level, args) => {
+      const time = new Date().toLocaleTimeString('ja-JP', { hour12: false })
+      const msg = Array.from(args).map(a => {
+        try { return typeof a === 'object' ? JSON.stringify(a) : String(a) }
+        catch (e) { return String(a) }
+      }).join(' ')
+      const line = `[${time}] [${level}] ${msg}`
+      logLines.push(line)
+      const div = document.createElement('div')
+      div.textContent = line
+      if (level === 'ERROR') div.style.color = '#f55'
+      logPanel.appendChild(div)
+      logPanel.scrollTop = logPanel.scrollHeight
+    }
+
+    // console.log/error/warnを乗っ取ってログパネルにも出す
+    const _origLog = console.log, _origErr = console.error, _origWarn = console.warn
+    console.log = (...args) => { _origLog(...args); addLog('LOG', args) }
+    console.error = (...args) => { _origErr(...args); addLog('ERROR', args) }
+    console.warn = (...args) => { _origWarn(...args); addLog('WARN', args) }
+
+    // ページ内で起きた未処理エラーも拾う(スクリプト読み込み失敗など)
+    window.addEventListener('error', (e) => {
+      addLog('ERROR', [`${e.message} @ ${e.filename}:${e.lineno}`])
+    })
+    window.addEventListener('unhandledrejection', (e) => {
+      addLog('ERROR', [`Promise rejection: ${e.reason}`])
+    })
+
+    document.getElementById('copy-log-btn').addEventListener('click', () => {
+      const text = logLines.join('\n')
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text)
+          .then(() => addLog('LOG', ['ログをクリップボードにコピーしました']))
+          .catch(() => addLog('ERROR', ['コピー失敗。手動で選択してコピーしてください']))
+      } else {
+        addLog('ERROR', ['このブラウザはクリップボードAPI非対応。手動で選択してください'])
+      }
+    })
+
+    addLog('LOG', ['スクリプト評価開始'])
+    addLog('LOG', [`UA: ${navigator.userAgent}`])
     // ==== マーカー検出時のハンドラ ====
     const onImageFound = (event) => {
       const { name, position, rotation, scale } = event.detail
@@ -43,6 +101,7 @@
 
     // ==== Three.jsシーンの初期化 ====
     const initScene = () => {
+      console.log('onStart: Three.jsシーン初期化開始')
       const { scene } = XR8.Threejs.xrScene()
 
       // 仮のオブジェクト(あとで鉢-bitの3Dモデル(.glb等)に差し替えてOK)
@@ -54,13 +113,17 @@
 
       const light = new THREE.HemisphereLight(0xffffff, 0x444444)
       scene.add(light)
+      console.log('onStart: シーン初期化完了')
     }
 
     // ==== XR8起動処理 ====
     const onxrloaded = () => {
+      console.log('xrloadedイベント発火。XR8初期化を開始します')
+
       XR8.XrController.configure({
         imageTargets: ['./image-targets/kingyo-target.json'],
       })
+      console.log('XrController.configure() 完了')
 
       XR8.addCameraPipelineModules([
         XR8.GlTextureRenderer.pipelineModule(),   // カメラ映像を描画
@@ -74,16 +137,34 @@
           name: 'kingyo-app',
           onStart: initScene,
           listeners: [
+            { event: 'reality.trackingstatus', process: (e) => console.log('trackingStatus:', JSON.stringify(e.detail)) },
+            { event: 'reality.imageloading', process: (e) => console.log('imageloading:', JSON.stringify(e.detail)) },
+            { event: 'reality.imagescanning', process: (e) => console.log('imagescanning: マーカー探索開始') },
             { event: 'reality.imagefound', process: onImageFound },
             { event: 'reality.imagelost', process: onImageLost },
           ],
         },
       ])
+      console.log('パイプラインモジュール追加完了')
 
       XR8.run({ canvas: document.getElementById('camerafeed') })
+      console.log('XR8.run() 呼び出し完了。カメラ起動待ち')
     }
 
-    window.XR8 ? onxrloaded() : window.addEventListener('xrloaded', onxrloaded)
+    if (window.XR8) {
+      console.log('XR8はすでに読み込み済み')
+      onxrloaded()
+    } else {
+      console.log('xrloadedイベント待機中...')
+      window.addEventListener('xrloaded', onxrloaded)
+    }
+
+    // xr.js自体が一定時間内に読み込まれなければ警告を出す(CDN障害・パス誤り検知用)
+    setTimeout(() => {
+      if (!window.XR8) {
+        console.error('8秒経ってもXR8が読み込まれていません。xr.js(CDN)の読み込み失敗、またはネットワーク接続を確認してください')
+      }
+    }, 8000)
   </script>
 </body>
 </html>
