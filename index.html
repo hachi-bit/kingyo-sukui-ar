@@ -3,18 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>鉢-bit AR</title>
+  <title>鉢-bit AR (地面認識版)</title>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
     #camerafeed { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    #hint {
+      position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.6); color: #fff; padding: 10px 18px; border-radius: 20px;
+      font: 14px/1.4 sans-serif; z-index: 9998; text-align: center; pointer-events: none;
+      transition: opacity 0.3s;
+    }
     #log-panel {
-      position: absolute; left: 0; right: 0; bottom: 0; max-height: 45%;
+      position: absolute; left: 0; right: 0; bottom: 0; max-height: 40%;
       overflow-y: auto; background: rgba(0,0,0,0.85); color: #0f0;
       font: 12px/1.4 monospace; padding: 8px; box-sizing: border-box;
       z-index: 9999; white-space: pre-wrap; word-break: break-all;
     }
     #copy-log-btn {
-      position: absolute; right: 8px; bottom: calc(45% + 8px); z-index: 10000;
+      position: absolute; right: 8px; bottom: calc(40% + 8px); z-index: 10000;
       background: #222; color: #fff; border: 1px solid #666; border-radius: 6px;
       padding: 8px 12px; font-size: 13px;
     }
@@ -23,21 +29,22 @@
   <!-- Three.js本体(r150以降はグローバル版ビルドが廃止されたため、まだ存在するr149系を指定) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
 
-  <!-- 8th Wall エンジン(SLAM込み・クローズドバイナリ / 商用利用OKの無償配布バイナリ) -->
+  <!-- 8th Wall エンジン(SLAM込み・クローズドバイナリ) -->
   <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
     async crossorigin="anonymous" data-preload-chunks="slam"></script>
 
-  <!-- 補助UI(ローディング画面・エラーハンドリング等・MITライセンス) -->
+  <!-- 補助UI(ローディング画面・エラーハンドリング等) -->
   <script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js"
     crossorigin="anonymous"></script>
 </head>
 <body>
   <canvas id="camerafeed"></canvas>
+  <div id="hint">まわりを見渡してください...</div>
   <button id="copy-log-btn">ログ全部をコピー</button>
   <div id="log-panel"></div>
 
   <script>
-    // ==== 画面上ログパネル(iPhoneでも実機のまま確認できるように) ====
+    // ==== 画面上ログパネル ====
     const logPanel = document.getElementById('log-panel')
     const logLines = []
     const addLog = (level, args) => {
@@ -54,50 +61,70 @@
       logPanel.appendChild(div)
       logPanel.scrollTop = logPanel.scrollHeight
     }
-
-    // console.log/error/warnを乗っ取ってログパネルにも出す
     const _origLog = console.log, _origErr = console.error, _origWarn = console.warn
     console.log = (...args) => { _origLog(...args); addLog('LOG', args) }
     console.error = (...args) => { _origErr(...args); addLog('ERROR', args) }
     console.warn = (...args) => { _origWarn(...args); addLog('WARN', args) }
-
-    // ページ内で起きた未処理エラーも拾う(スクリプト読み込み失敗など)
-    window.addEventListener('error', (e) => {
-      addLog('ERROR', [`${e.message} @ ${e.filename}:${e.lineno}`])
-    })
-    window.addEventListener('unhandledrejection', (e) => {
-      addLog('ERROR', [`Promise rejection: ${e.reason}`])
-    })
-
+    window.addEventListener('error', (e) => addLog('ERROR', [`${e.message} @ ${e.filename}:${e.lineno}`]))
+    window.addEventListener('unhandledrejection', (e) => addLog('ERROR', [`Promise rejection: ${e.reason}`]))
     document.getElementById('copy-log-btn').addEventListener('click', () => {
       const text = logLines.join('\n')
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text)
-          .then(() => addLog('LOG', ['ログをクリップボードにコピーしました']))
-          .catch(() => addLog('ERROR', ['コピー失敗。手動で選択してコピーしてください']))
-      } else {
-        addLog('ERROR', ['このブラウザはクリップボードAPI非対応。手動で選択してください'])
-      }
+      navigator.clipboard?.writeText(text)
+        .then(() => addLog('LOG', ['ログをクリップボードにコピーしました']))
+        .catch(() => addLog('ERROR', ['コピー失敗。手動で選択してコピーしてください']))
     })
-
     addLog('LOG', ['スクリプト評価開始'])
     addLog('LOG', [`UA: ${navigator.userAgent}`])
-    addLog('LOG', [window.THREE ? `THREE読み込み済み (r${THREE.REVISION})` : 'THREE未読み込み(この時点では別スクリプトのため正常)'])
-    // ==== マーカー検出時のハンドラ ====
-    const onImageFound = (event) => {
-      const { name, position, rotation, scale } = event.detail
-      console.log('マーカー発見:', name)
-      if (window.myModel) {
-        window.myModel.position.copy(position)
-        window.myModel.quaternion.copy(rotation)
-        window.myModel.scale.setScalar(scale)
-        window.myModel.visible = true
-      }
+
+    // ==== 地面タップ配置ロジック ====
+    const hintEl = document.getElementById('hint')
+    let groundFound = false
+    let raycaster, groundPlane, mouse
+
+    // 見えないY=0の地面(ここに向かってレイキャストする)
+    const setupGround = (scene) => {
+      const geo = new THREE.PlaneGeometry(1000, 1000)
+      geo.rotateX(-Math.PI / 2)
+      const mat = new THREE.MeshBasicMaterial({ visible: false })
+      groundPlane = new THREE.Mesh(geo, mat)
+      scene.add(groundPlane)
+      raycaster = new THREE.Raycaster()
+      mouse = new THREE.Vector2()
     }
 
-    // World Trackingが効いてる間は、見失っても位置を保持したまま消さない
-    const onImageLost = () => {
-      console.log('マーカー見失い(World Trackingで位置は保持継続)')
+    // タップした画面座標→地面との交点に金魚(仮オブジェクト)を配置
+    const placeAtTap = (clientX, clientY) => {
+      const { camera, scene } = XR8.Threejs.xrScene()
+      mouse.x = (clientX / window.innerWidth) * 2 - 1
+      mouse.y = -(clientY / window.innerHeight) * 2 + 1
+      raycaster.setFromCamera(mouse, camera)
+      const hits = raycaster.intersectObject(groundPlane)
+      if (hits.length === 0) {
+        console.log('地面との交点なし(タップ位置が地平線より上など)')
+        return
+      }
+      const point = hits[0].point
+      console.log(`配置: x=${point.x.toFixed(2)} y=${point.y.toFixed(2)} z=${point.z.toFixed(2)}`)
+
+      // ==== 仮の金魚オブジェクト(あとで.glbモデルに差し替え予定) ====
+      const geo = new THREE.SphereGeometry(0.08, 16, 16)
+      geo.scale(1, 0.6, 1.6) // 金魚っぽく少し潰して伸ばす
+      const mat = new THREE.MeshStandardMaterial({ color: 0xff6b3d })
+      const fish = new THREE.Mesh(geo, mat)
+      fish.position.copy(point)
+      fish.position.y += 0.08
+      fish.scale.setScalar(0.01)
+      scene.add(fish)
+
+      // 出現アニメーション(小→通常サイズへスケールアップ)
+      const start = performance.now()
+      const grow = () => {
+        const t = Math.min((performance.now() - start) / 300, 1)
+        const s = 0.01 + (1 - 0.01) * t
+        fish.scale.setScalar(s)
+        if (t < 1) requestAnimationFrame(grow)
+      }
+      grow()
     }
 
     // ==== Three.jsシーンの初期化 ====
@@ -105,56 +132,61 @@
       console.log('onStart: Three.jsシーン初期化開始')
       const { scene } = XR8.Threejs.xrScene()
 
-      // 仮のオブジェクト(あとで鉢-bitの3Dモデル(.glb等)に差し替えてOK)
-      const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1)
-      const material = new THREE.MeshNormalMaterial()
-      window.myModel = new THREE.Mesh(geometry, material)
-      window.myModel.visible = false
-      scene.add(window.myModel)
+      setupGround(scene)
 
-      const light = new THREE.HemisphereLight(0xffffff, 0x444444)
+      const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0)
       scene.add(light)
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.6)
+      dirLight.position.set(1, 3, 1)
+      scene.add(dirLight)
+
+      // タップ/クリックイベントを拾う
+      window.addEventListener('touchstart', (e) => {
+        if (!groundFound) return
+        const t = e.touches[0]
+        placeAtTap(t.clientX, t.clientY)
+      })
+      window.addEventListener('click', (e) => {
+        if (!groundFound) return
+        placeAtTap(e.clientX, e.clientY)
+      })
+
       console.log('onStart: シーン初期化完了')
     }
 
+    // World Trackingの状態を見て「地面検出できたっぽいか」の目安にする
+    const onTrackingStatus = (event) => {
+      const { status } = event.detail
+      console.log('trackingStatus:', status)
+      if (status === 'NORMAL' && !groundFound) {
+        groundFound = true
+        hintEl.textContent = '画面をタップして金魚を配置'
+        console.log('トラッキング安定 → タップ受付開始')
+      }
+    }
+
     // ==== XR8起動処理 ====
-    const onxrloaded = async () => {
+    const onxrloaded = () => {
       console.log('xrloadedイベント発火。XR8初期化を開始します')
 
-      // マーカーデータ(JSON)を事前にfetchで読み込む(imageTargetDataは中身そのものを要求する仕様)
-      let targetData
-      try {
-        const res = await fetch('./image-targets/kingyo-target.json')
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        targetData = await res.json()
-        console.log('マーカーデータのfetch成功:', targetData.name)
-      } catch (e) {
-        console.error(`マーカーデータの読み込み失敗: ${e.message}`)
-        return
-      }
-
+      // マーカー無し。World Tracking(SLAM)のみを使う
       XR8.XrController.configure({
-        imageTargetData: [targetData],
+        disableWorldTracking: false,
       })
-      console.log('XrController.configure() 完了(imageTargetData使用)')
 
       XR8.addCameraPipelineModules([
-        XR8.GlTextureRenderer.pipelineModule(),   // カメラ映像を描画
-        XR8.Threejs.pipelineModule(),             // Three.jsシーン生成
-        XR8.XrController.pipelineModule(),        // SLAM(World Tracking)有効化
-        XRExtras.AlmostThere.pipelineModule(),    // 非対応ブラウザ対策
+        XR8.GlTextureRenderer.pipelineModule(),
+        XR8.Threejs.pipelineModule(),
+        XR8.XrController.pipelineModule(),
+        XRExtras.AlmostThere.pipelineModule(),
         XRExtras.FullWindowCanvas.pipelineModule(),
         XRExtras.Loading.pipelineModule(),
         XRExtras.RuntimeError.pipelineModule(),
         {
-          name: 'kingyo-app',
+          name: 'kingyo-ground-app',
           onStart: initScene,
           listeners: [
-            { event: 'reality.trackingstatus', process: (e) => console.log('trackingStatus:', JSON.stringify(e.detail)) },
-            { event: 'reality.imageloading', process: (e) => console.log('imageloading:', JSON.stringify(e.detail)) },
-            { event: 'reality.imagescanning', process: (e) => console.log('imagescanning: マーカー探索開始') },
-            { event: 'reality.imagefound', process: onImageFound },
-            { event: 'reality.imagelost', process: onImageLost },
+            { event: 'reality.trackingstatus', process: onTrackingStatus },
           ],
         },
       ])
@@ -165,14 +197,11 @@
     }
 
     if (window.XR8) {
-      console.log('XR8はすでに読み込み済み')
       onxrloaded()
     } else {
-      console.log('xrloadedイベント待機中...')
       window.addEventListener('xrloaded', onxrloaded)
     }
 
-    // xr.js自体が一定時間内に読み込まれなければ警告を出す(CDN障害・パス誤り検知用)
     setTimeout(() => {
       if (!window.XR8) {
         console.error('8秒経ってもXR8が読み込まれていません。xr.js(CDN)の読み込み失敗、またはネットワーク接続を確認してください')
