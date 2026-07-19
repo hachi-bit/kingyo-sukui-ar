@@ -70,6 +70,49 @@
     z-index: 10; background: rgba(0,0,0,0.55); color: #fff; padding: 10px 18px;
     border-radius: 999px; font-size: 13px; pointer-events: none;
   }
+  /* ポイ選択画面 */
+  #poiSelectScreen { gap: 10px; }
+  #poiTierList { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 320px; margin-top: 6px; }
+  .poiTierCard {
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 12px; padding: 12px 16px; text-align: left; color: #fff;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .poiTierCard.disabled { opacity: 0.4; }
+  .poiTierCard .name { font-size: 14px; font-weight: bold; }
+  .poiTierCard .stats { font-size: 11px; opacity: 0.75; margin-top: 2px; }
+  .poiTierCard .cost { font-size: 13px; font-weight: bold; color: #ffd166; white-space: nowrap; margin-left: 10px; }
+
+  /* タイミングゲージ */
+  #gaugeOverlay {
+    position: fixed; left: 50%; bottom: 8%; transform: translateX(-50%);
+    z-index: 20; display: flex; flex-direction: column; align-items: center; gap: 10px;
+    background: rgba(0,0,0,0.6); padding: 16px 20px; border-radius: 16px; width: 84%; max-width: 380px;
+    box-sizing: border-box;
+  }
+  #gaugeTitle { color: #fff; font-size: 13px; font-weight: bold; }
+  #gaugeTrack {
+    position: relative; width: 100%; height: 28px; background: rgba(255,255,255,0.15);
+    border-radius: 999px; overflow: hidden;
+  }
+  #gaugeZone {
+    position: absolute; top: 0; bottom: 0; background: rgba(124,255,176,0.55);
+    border-left: 2px solid #7cffb0; border-right: 2px solid #7cffb0;
+  }
+  #gaugeMarker {
+    position: absolute; top: -3px; bottom: -3px; width: 5px; background: #fff;
+    border-radius: 3px; box-shadow: 0 0 6px rgba(255,255,255,0.9);
+  }
+  #gaugeTapBtn {
+    padding: 13px 50px; font-size: 16px; border: none; border-radius: 999px;
+    background: #ffb703; color: #1a1a1a; font-weight: bold;
+  }
+  #gaugeShockBtn {
+    padding: 8px 20px; font-size: 12px; border: none; border-radius: 999px;
+    background: #3a6bdb; color: #fff;
+  }
+  #gaugeShockBtn:disabled { opacity: 0.4; }
+
   #debugPanel {
     position: fixed; bottom: env(safe-area-inset-bottom, 6px); left: 8px; right: 8px; z-index: 50;
     background: rgba(0,0,0,0.7); color: #a0ffb0; font-size: 10px; font-family: monospace;
@@ -119,13 +162,19 @@
 <!-- タイトル画面 -->
 <div id="titleScreen" class="screen">
   <h1>🎏 ARデジタル金魚すくい</h1>
-  <p>金魚柄のマーカーにカメラを向けて、たらいを呼び出そう。ポイに金魚が触れたら、少し待ってから傾けて中央にキープしてすくいきってね。</p>
+  <p>金魚柄のマーカーにカメラを向けて、たらいを呼び出そう。狙いを定めてポイを撃ち込んで、金魚を仕留めよう。</p>
   <div id="coinDisplayTitle">🪙 コイン: <span id="coinCountTitle">0</span></div>
   <button id="startSlamBtn" class="bigBtn">AR金魚すくいを始める</button>
   <button id="openGalleryBtn" class="subBtn">図鑑・鑑賞モード</button>
-  <label id="autoBuffRow">
-    <input type="checkbox" id="autoBuffCheckbox"> すくう時コインで自動強化する（1回10コイン）
-  </label>
+</div>
+
+<!-- ポイ選択画面 -->
+<div id="poiSelectScreen" class="screen hidden">
+  <h1 style="font-size:19px;">🎣 ポイを選ぼう</h1>
+  <p style="font-size:12px; opacity:0.8; max-width:320px;">選んだポイは、このラウンドの間ずっと使う使い切りタイプやで。</p>
+  <div id="coinDisplayPoiSelect">🪙 コイン: <span id="coinCountPoiSelect">0</span></div>
+  <div id="poiTierList"></div>
+  <button id="poiSelectBackBtn" class="subBtn">タイトルへ戻る</button>
 </div>
 
 <!-- AR中HUD -->
@@ -134,8 +183,19 @@
   <div class="hudPill">🪙 <span id="coinCountHud">0</span></div>
 </div>
 <div id="catchBanner"></div>
-<div id="liftBanner" class="hidden">引き上げろ！</div>
 <div id="placeHint" class="hidden">マーカーにカメラを向けてね</div>
+
+<!-- 命中後のタイミングゲージ -->
+<div id="gaugeOverlay" class="hidden">
+  <div id="gaugeTitle">タイミングよくタップ！ (<span id="gaugeHitCount">0</span>/<span id="gaugeHitNeeded">3</span>)</div>
+  <div id="gaugeTrack">
+    <div id="gaugeZone"></div>
+    <div id="gaugeMarker"></div>
+  </div>
+  <button id="gaugeTapBtn">キャッチ！</button>
+  <button id="gaugeShockBtn">⚡電撃を使う (<span id="gaugeShockCost">20</span>🪙)</button>
+</div>
+
 <div id="debugPanel">
   <div id="debugLogText">ログ待機中...</div>
   <button id="debugCopyBtn">ログ全部をコピー</button>
@@ -187,6 +247,16 @@ const FISH_TYPES = [
   { id: 'ayakashi', name: 'あやかし金魚', rarity: 'rare',    color: 0x66ffe0, wildness: 1.7,  value: 50, desc: '祭りの夜にだけ現れるという幻の金魚。', emissive: true },
 ];
 const RARITY_WEIGHT = { common: 60, uncommon: 30, rare: 10 };
+
+/* =========================================================
+   ポイ(使い切り)の段階
+========================================================= */
+const POI_TIERS = [
+  { id: 'free',   name: '無料ポイ',   cost: 0,    speedMul: 1.0, hitRadiusMul: 1.0, desc: '基本のポイ。まずはこれで練習や。' },
+  { id: 'silver', name: '銀のポイ',   cost: 150,  speedMul: 1.4, hitRadiusMul: 1.15, desc: '飛ぶ速さアップ。当てやすくなるで。' },
+  { id: 'gold',   name: '金のポイ',   cost: 400,  speedMul: 1.9, hitRadiusMul: 1.3, desc: 'かなり速い。レアの金魚も狙いやすいで。' },
+];
+let selectedPoiTier = POI_TIERS[0];
 
 function pickRandomFishType() {
   const total = FISH_TYPES.reduce((s, f) => s + RARITY_WEIGHT[f.rarity], 0);
@@ -306,15 +376,46 @@ function requestOrientationPermission() {
 ========================================================= */
 refreshCoinDisplays();
 
-document.getElementById('startSlamBtn').addEventListener('click', async () => {
-  await requestOrientationPermission();
-  showScreen(null);
-  document.getElementById('hud').classList.remove('hidden');
-  document.getElementById('placeHint').textContent = 'マーカーにカメラを向けてね';
-  document.getElementById('placeHint').classList.remove('hidden');
-  document.getElementById('debugPanel').classList.remove('hidden');
-  startArSession('catch', null);
+document.getElementById('startSlamBtn').addEventListener('click', () => {
+  renderPoiTierList();
+  showScreen('poiSelectScreen');
 });
+
+document.getElementById('poiSelectBackBtn').addEventListener('click', () => {
+  showScreen('titleScreen');
+});
+
+function renderPoiTierList() {
+  document.getElementById('coinCountPoiSelect').textContent = coins;
+  const list = document.getElementById('poiTierList');
+  list.innerHTML = '';
+  POI_TIERS.forEach((tier) => {
+    const affordable = coins >= tier.cost;
+    const card = document.createElement('div');
+    card.className = 'poiTierCard' + (affordable ? '' : ' disabled');
+    card.innerHTML = `
+      <div>
+        <div class="name">${tier.name}</div>
+        <div class="stats">${tier.desc}</div>
+      </div>
+      <div class="cost">${tier.cost === 0 ? '無料' : tier.cost + '🪙'}</div>`;
+    if (affordable) {
+      card.addEventListener('click', async () => {
+        if (tier.cost > 0 && !spendCoins(tier.cost)) return;
+        refreshCoinDisplays();
+        selectedPoiTier = tier;
+        log(`ポイ選択: ${tier.name}`);
+        showScreen(null);
+        document.getElementById('hud').classList.remove('hidden');
+        document.getElementById('placeHint').textContent = 'マーカーにカメラを向けてね';
+        document.getElementById('placeHint').classList.remove('hidden');
+        document.getElementById('debugPanel').classList.remove('hidden');
+        startArSession('catch', null);
+      });
+    }
+    list.appendChild(card);
+  });
+}
 
 document.getElementById('openGalleryBtn').addEventListener('click', () => {
   renderGalleryGrid();
@@ -442,8 +543,7 @@ function initViewRenderer() {
   viewCamera.updateProjectionMatrix();
 }
 
-document.getElementById('summonArBtn').addEventListener('click', async () => {
-  await requestOrientationPermission();
+document.getElementById('summonArBtn').addEventListener('click', () => {
   showScreen(null);
   document.getElementById('placeHint').classList.remove('hidden');
   document.getElementById('debugPanel').classList.remove('hidden');
@@ -580,13 +680,6 @@ function goldfishGamePipelineModule() {
   let roundActive = false;
   const caughtThisRound = {};
 
-  const HOLD_RADIUS = 0.025;     // これより中心に近ければキープ扱い
-  const ESCAPE_RADIUS = 0.058;   // これを超えたら逃げられる（紙面の縁あたり）
-  const REQUIRED_HOLD = 1.1;     // 何秒キープしたら成功か
-  const LIFT_DURATION = 2.0;     // 捕捉→水面から引き上げるまでの猶予(秒)
-  const TILT_ACCEL = 0.05;       // 傾きが与える加速度の強さ
-  const WANDER_ACCEL_BASE = 0.3; // 金魚の暴れが与える加速度の強さ
-  const FRICTION_PER_SEC = 3.2;  // 摩擦の強さ(大きいほどすぐ減速する)
   const TUB_OFFSET_FROM_MARKER = 0.08; // 桶をマーカー面からどれだけ離すか(m)。射出式なので近くてOK
   const TUB_RADIUS = 0.42;       // 桶(水面)の半径。すぐ捕まらないよう広めに
   const FLEE_RADIUS = 0.22;      // 飛んできたポイがこの距離まで近づくと逃げ始める(レア個体のみ)
@@ -595,7 +688,6 @@ function goldfishGamePipelineModule() {
   const HIT_RADIUS = 0.09;       // 飛んでいるポイが金魚に当たったと判定する距離
   const PROJECTILE_MAX_RANGE = 1.6; // これ以上飛んで何もヒットしなければ空振り
   const REEL_DURATION = 0.35;    // 空振り時に手元へ巻き戻る時間(秒)
-  const MAX_SPEED = 0.22;        // 金魚が出せる最大速度
 
   const POI_HOME_LOCAL = { x: 0, y: 0.06, z: -0.3 }; // 手元(カメラ基準)でのポイの定位置
 
@@ -661,10 +753,7 @@ function goldfishGamePipelineModule() {
     poiGroup.position.copy(worldPos);
     poiGroup.quaternion.copy(worldQuat);
 
-    const buffed = document.getElementById('autoBuffCheckbox').checked;
-    let speed = PROJECTILE_SPEED_BASE;
-    if (buffed && spendCoins(10)) { speed *= 1.8; refreshCoinDisplays(); log('コイン強化: 射出速度アップ'); }
-
+    const speed = PROJECTILE_SPEED_BASE * selectedPoiTier.speedMul;
     poiVelocity.copy(dir).multiplyScalar(speed);
     poiTraveledDist = 0;
     poiState = 'flying';
@@ -772,62 +861,36 @@ function goldfishGamePipelineModule() {
   }
 
   function tryGrab(fishEntry) {
-    // stage1 -> stage2 遷移。ポイのローカル座標系へ持ち替える
-    const worldPos = new THREE.Vector3();
-    fishEntry.mesh.getWorldPosition(worldPos);
     tubGroup.remove(fishEntry.mesh);
     poiGroup.add(fishEntry.mesh);
-    fishEntry.mesh.position.set(0, -0.05, -0.004);
+    fishEntry.mesh.position.set(0, 0, -0.05);
 
-    let buffed = false;
-    const autoBuff = document.getElementById('autoBuffCheckbox').checked;
-    if (autoBuff && spendCoins(10)) {
-      buffed = true;
-      refreshCoinDisplays();
-    }
-
-    heldFish = {
-      mesh: fishEntry.mesh,
-      type: fishEntry.type,
-      state: 'lifting',       // 'lifting' -> 'balancing'
-      liftTimer: 0,
-      holdTimer: 0,
-      balance: { x: 0, y: 0 },
-      velocity: { x: 0, y: 0 },
-      baseline: { beta: latestOrientation.beta, gamma: latestOrientation.gamma },
-      wander: { x: 0, y: 0 },
-      wanderTimer: 0,
-      buffed,
-    };
+    heldFish = { mesh: fishEntry.mesh, type: fishEntry.type };
     freeFish = freeFish.filter(f => f !== fishEntry);
-    document.getElementById('liftBanner').classList.remove('hidden');
+    startGauge(fishEntry.type);
   }
 
   function catchSuccess() {
-    document.getElementById('liftBanner').classList.add('hidden');
     const type = heldFish.type;
-    const value = Math.round(type.value * (heldFish.buffed ? 1.5 : 1));
-    addCoins(value);
+    addCoins(type.value);
     registerCatch(type);
     caughtThisRound[type.id] = (caughtThisRound[type.id] || 0) + 1;
-    showBanner(`GET! ${type.name} (+${value}🪙)`);
+    showBanner(`GET! ${type.name} (+${type.value}🪙)`);
     poiGroup.remove(heldFish.mesh);
     heldFish = null;
     if (roundActive) setTimeout(spawnFreeFish, 500);
   }
 
   function catchFail() {
-    document.getElementById('liftBanner').classList.add('hidden');
     const mesh = heldFish.mesh;
     showBanner('にげられた！');
     poiGroup.remove(mesh);
     tubGroup.add(mesh);
     mesh.scale.setScalar(0.001);
-    const targetScale = mesh.userData.baseScale || 1;
     let t = 0;
     const grow = () => {
       t += 0.05;
-      mesh.scale.setScalar(Math.min(1, t) * targetScale);
+      mesh.scale.setScalar(Math.min(1, t));
       if (t < 1) requestAnimationFrame(grow);
     };
     const entry = {
@@ -843,6 +906,101 @@ function goldfishGamePipelineModule() {
     freeFish.push(entry);
     grow();
     heldFish = null;
+  }
+
+  /* --- タイミングゲージ --- */
+  const gauge = {
+    active: false, pos: 0.5, dir: 1, speed: 0.5,
+    zoneStart: 0.4, zoneWidth: 0.2,
+    hits: 0, needed: 3, misses: 0, maxMisses: 3,
+    shockThisTap: false,
+  };
+  const GAUGE_SHOCK_COST = 20;
+
+  function startGauge(type) {
+    const difficulty = type.wildness || 1;
+    gauge.active = true;
+    gauge.pos = 0.5;
+    gauge.dir = 1;
+    gauge.speed = 0.45 * difficulty;
+    gauge.zoneWidth = Math.max(0.12, 0.32 / difficulty);
+    gauge.zoneStart = Math.random() * (1 - gauge.zoneWidth);
+    gauge.hits = 0;
+    gauge.needed = 3;
+    gauge.misses = 0;
+    gauge.maxMisses = 3;
+    gauge.shockThisTap = false;
+    document.getElementById('gaugeHitNeeded').textContent = gauge.needed;
+    document.getElementById('gaugeHitCount').textContent = 0;
+    updateGaugeShockButton();
+    updateGaugeVisual();
+    document.getElementById('gaugeOverlay').classList.remove('hidden');
+  }
+
+  function updateGaugeVisual() {
+    document.getElementById('gaugeMarker').style.left = (gauge.pos * 100) + '%';
+    document.getElementById('gaugeZone').style.left = (gauge.zoneStart * 100) + '%';
+    document.getElementById('gaugeZone').style.width = (gauge.zoneWidth * 100) + '%';
+  }
+
+  function tickGauge(dt) {
+    if (!gauge.active) return;
+    gauge.pos += gauge.dir * gauge.speed * dt;
+    if (gauge.pos > 1) { gauge.pos = 1; gauge.dir = -1; }
+    if (gauge.pos < 0) { gauge.pos = 0; gauge.dir = 1; }
+    updateGaugeVisual();
+  }
+
+  function tapGauge() {
+    if (!gauge.active) return;
+    let start = gauge.zoneStart, width = gauge.zoneWidth;
+    if (gauge.shockThisTap) {
+      start = Math.max(0, start - width * 0.5);
+      width = width * 2;
+    }
+    const inZone = gauge.pos >= start && gauge.pos <= start + width;
+    if (inZone) {
+      gauge.hits++;
+      document.getElementById('gaugeHitCount').textContent = gauge.hits;
+      showBanner('ヒット！');
+    } else {
+      gauge.misses++;
+      showBanner('ズレた…');
+    }
+    if (gauge.hits >= gauge.needed) {
+      endGauge(true);
+    } else if (gauge.misses >= gauge.maxMisses) {
+      endGauge(false);
+    } else {
+      gauge.zoneStart = Math.random() * (1 - gauge.zoneWidth);
+      gauge.shockThisTap = false;
+      updateGaugeShockButton();
+    }
+  }
+
+  function useShock() {
+    if (!gauge.active || gauge.shockThisTap) return;
+    if (!spendCoins(GAUGE_SHOCK_COST)) return;
+    refreshCoinDisplays();
+    gauge.shockThisTap = true;
+    updateGaugeShockButton();
+    log('電撃使用！');
+  }
+
+  function updateGaugeShockButton() {
+    const btn = document.getElementById('gaugeShockBtn');
+    if (!btn) return;
+    btn.disabled = gauge.shockThisTap;
+    btn.innerHTML = gauge.shockThisTap
+      ? '⚡電撃発動中'
+      : `⚡電撃を使う (<span id="gaugeShockCost">${GAUGE_SHOCK_COST}</span>🪙)`;
+  }
+
+  function endGauge(success) {
+    gauge.active = false;
+    document.getElementById('gaugeOverlay').classList.add('hidden');
+    if (success) catchSuccess();
+    else catchFail();
   }
 
   function endRound() {
@@ -908,6 +1066,14 @@ function goldfishGamePipelineModule() {
 
       window.addEventListener('touchstart', tryShoot);
       window.addEventListener('mousedown', tryShoot);
+      document.getElementById('gaugeTapBtn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        tapGauge();
+      });
+      document.getElementById('gaugeShockBtn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        useShock();
+      });
 
       log('ゲームシーン初期化完了。マーカー検出待ち');
     },
@@ -958,7 +1124,7 @@ function goldfishGamePipelineModule() {
           f.basePos.y + Math.sin(angle) * f.radius,
           f.basePos.z + Math.sin(t * 3 + f.phase) * 0.004
         );
-        f.mesh.rotation.set(Math.PI / 2, 0, angle + Math.PI / 2);
+        f.mesh.rotation.set(Math.PI / 2, 0, angle + Math.PI);
         const tailMesh = f.mesh.getObjectByName('tail');
         if (tailMesh) tailMesh.rotation.y = Math.sin(t * (f.fleeing > 0 ? 11 : 8) + f.phase) * 0.5;
       });
@@ -975,7 +1141,7 @@ function goldfishGamePipelineModule() {
           if (f.invulnerable > 0) continue;
           const fishWorld = new THREE.Vector3();
           f.mesh.getWorldPosition(fishWorld);
-          if (fishWorld.distanceTo(poiWorld) < HIT_RADIUS) { hitFish = f; break; }
+          if (fishWorld.distanceTo(poiWorld) < HIT_RADIUS * selectedPoiTier.hitRadiusMul) { hitFish = f; break; }
         }
 
         if (hitFish) {
@@ -987,79 +1153,8 @@ function goldfishGamePipelineModule() {
         }
       }
 
-      // stage2: 引き上げ猶予 → ポイの上でのバランス勝負
-      if (heldFish) {
-        if (heldFish.state === 'lifting') {
-          heldFish.liftTimer += dt;
-          const p = Math.min(1, heldFish.liftTimer / LIFT_DURATION);
-          const eased = 1 - Math.pow(1 - p, 2); // ease-out
-          const y = -0.05 + 0.05 * eased;
-          heldFish.mesh.position.set(0, y, -0.004);
-          if (p >= 1) {
-            heldFish.state = 'balancing';
-            document.getElementById('liftBanner').classList.add('hidden');
-            // 引き上げ完了時点をあらためて基準の傾きにする(不意打ちで即失敗しないように)
-            heldFish.baseline = { beta: latestOrientation.beta, gamma: latestOrientation.gamma };
-          }
-        } else if (heldFish.state === 'balancing') {
-          heldFish.wanderTimer -= dt;
-          if (heldFish.wanderTimer <= 0) {
-            heldFish.wanderTimer = 0.4 + Math.random() * 0.35;
-            const wildness = heldFish.type.wildness;
-            heldFish.wander.x = (Math.random() - 0.5) * WANDER_ACCEL_BASE * wildness;
-            heldFish.wander.y = (Math.random() - 0.5) * WANDER_ACCEL_BASE * wildness;
-          }
-          const delta = {
-            beta: latestOrientation.beta - heldFish.baseline.beta,
-            gamma: latestOrientation.gamma - heldFish.baseline.gamma,
-          };
-
-          // 傾き入力と金魚の暴れを「加速度」として速度に加える
-          const accelX = heldFish.wander.x + delta.gamma * TILT_ACCEL;
-          const accelY = heldFish.wander.y - delta.beta * TILT_ACCEL;
-          heldFish.velocity.x += accelX * dt;
-          heldFish.velocity.y += accelY * dt;
-
-          // 摩擦(指数減衰)で速度を減らす。これが「重さ」「粘り」を生む
-          const damping = Math.exp(-FRICTION_PER_SEC * dt);
-          heldFish.velocity.x *= damping;
-          heldFish.velocity.y *= damping;
-
-          // 最大速度でクランプ(無限に加速しないように)
-          const speed = Math.hypot(heldFish.velocity.x, heldFish.velocity.y);
-          if (speed > MAX_SPEED) {
-            heldFish.velocity.x *= MAX_SPEED / speed;
-            heldFish.velocity.y *= MAX_SPEED / speed;
-          }
-
-          heldFish.balance.x += heldFish.velocity.x * dt;
-          heldFish.balance.y += heldFish.velocity.y * dt;
-
-          const holdR = HOLD_RADIUS * (heldFish.buffed ? 1.4 : 1);
-          const escR = ESCAPE_RADIUS * (heldFish.buffed ? 1.25 : 1);
-          const reqHold = REQUIRED_HOLD * (heldFish.buffed ? 0.8 : 1);
-
-          const mag = Math.hypot(heldFish.balance.x, heldFish.balance.y);
-          if (mag > escR * 1.4) {
-            const scale = (escR * 1.4) / mag;
-            heldFish.balance.x *= scale;
-            heldFish.balance.y *= scale;
-          }
-          heldFish.mesh.position.set(heldFish.balance.x, heldFish.balance.y, -0.004);
-
-          if (mag < holdR) {
-            heldFish.holdTimer += dt;
-          } else {
-            heldFish.holdTimer = Math.max(0, heldFish.holdTimer - dt * 0.6);
-          }
-
-          if (heldFish.holdTimer >= reqHold) {
-            catchSuccess();
-          } else if (mag > escR) {
-            catchFail();
-          }
-        }
-      }
+      // stage2: 命中後のタイミングゲージ更新
+      tickGauge(dt);
 
       // タイマー
       if (arMode === 'catch' && roundActive) {
