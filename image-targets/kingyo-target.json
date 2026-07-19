@@ -4,12 +4,12 @@
   "name": "kingyo-target",
   "type": "PLANAR",
   "properties": {
-    "left": 128,
+    "left": 0,
     "top": 0,
     "width": 768,
     "height": 1024,
     "isRotated": true,
-    "originalWidth": 1024,
+    "originalWidth": 768,
     "originalHeight": 1024
   },
   "resources": {
@@ -18,6 +18,6 @@
     "thumbnailImage": "kingyo-target_thumbnail.png",
     "luminanceImage": "kingyo-target_luminance.png"
   },
-  "created": 1784429637751,
-  "updated": 1784429637751
+  "created": 1784433456955,
+  "updated": 1784433456955
 }
