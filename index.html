@@ -389,10 +389,21 @@ const buildPoi = () => {
   handle.rotation.x = 0.3
   group.add(handle)
 
-  // カメラの少し下・少し奥に固定(画面の下側に、金魚より手前に見える位置)
-  group.position.set(0, -0.18, -0.45)
-  group.rotation.x = -0.15
+  // ※このオブジェクトはカメラの子にはしない(camera.addだとXR8のカメラ行列に
+  //   スケール成分が混ざっている場合に子要素が歪むことがあるため)。
+  //   代わりに毎フレーム、カメラの位置・向きだけを手動でコピーして追従させる。
   return group
+}
+
+// カメラのローカル座標(x, y, z)を、カメラの位置・回転(スケール無視)だけを使って
+// ワールド座標に変換する。camera.localToWorld()は使わない(スケール混入対策)。
+const POI_LOCAL_OFFSET = new THREE.Vector3(0, -0.18, -0.45)
+const POI_LOCAL_TILT = -0.15 // ポイの傾き(見やすさのための固定角)
+const syncPoiToCamera = () => {
+  const offset = POI_LOCAL_OFFSET.clone().applyQuaternion(camera.quaternion)
+  poiGroup.position.copy(camera.position).add(offset)
+  poiGroup.quaternion.copy(camera.quaternion)
+  poiGroup.rotateX(POI_LOCAL_TILT)
 }
 
 // ---- 金魚メッシュ生成 ----
@@ -427,15 +438,9 @@ const pickSpecies = () => {
   return FISH_SPECIES[0]
 }
 
-// ---- 水場(池)と金魚の初期配置 ----
-const spawnPond = () => {
-  const { camera, scene } = XR8.Threejs.xrScene()
-  // カメラの現在位置から少し前方・下方に池の中心を置く
-  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
-  forward.y = 0
-  forward.normalize()
-  const pondCenter = camera.position.clone().add(forward.multiplyScalar(1.2))
-  pondCenter.y = camera.position.y - 1.0 // 足元より少し下を池の水面とみなす(要検証: 実際の床の高さと合わない場合は調整要)
+// ---- 水場(池)と金魚の初期配置(引数のワールド座標に配置) ----
+const spawnPond = (pondCenter) => {
+  const { scene } = XR8.Threejs.xrScene()
 
   const pondGeo = new THREE.CircleGeometry(0.9, 32)
   pondGeo.rotateX(-Math.PI / 2)
@@ -491,8 +496,8 @@ const updateLoop = () => {
   lastTime = now
   if (!scene) { requestAnimationFrame(updateLoop); return }
 
-  const poiWorldPos = new THREE.Vector3()
-  poiGroup.getWorldPosition(poiWorldPos)
+  syncPoiToCamera()
+  const poiWorldPos = poiGroup.position.clone()
 
   fishes.forEach(fish => {
     if (fish.mode === 'swim') {
@@ -531,8 +536,7 @@ const updateLoop = () => {
 
       // ポイに追従する位置(ローカルオフセットをワールドに変換)
       const localPos = new THREE.Vector3(fish.localOffset.x, 0.02, fish.localOffset.y)
-      poiGroup.localToWorld(localPos.clone())
-      const worldPos = poiGroup.localToWorld(localPos.clone())
+      const worldPos = poiGroup.localToWorld(localPos)
       fish.mesh.position.copy(worldPos)
 
       // 耐久ゲージ消費(縁に近いほど減る)
@@ -584,10 +588,20 @@ const initScene = () => {
   scene.add(dirLight)
 
   poiGroup = buildPoi()
-  camera.add(poiGroup)
-  if (!scene.children.includes(camera)) scene.add(camera)
+  scene.add(poiGroup) // カメラの子にはせず、シーン直下に置いて毎フレーム手動追従させる
 
-  console.log('onStart: シーン初期化完了(ポイをカメラに固定)')
+  // 地面選択フェーズ用: 池の位置を確定するタップ
+  window.addEventListener('touchstart', (e) => {
+    if (pondPlaced) return
+    const t = e.touches[0]
+    handlePlacementTap(t.clientX, t.clientY)
+  })
+  window.addEventListener('click', (e) => {
+    if (pondPlaced) return
+    handlePlacementTap(e.clientX, e.clientY)
+  })
+
+  console.log('onStart: シーン初期化完了(ポイは毎フレーム手動追従)')
   requestAnimationFrame(updateLoop)
 }
 
@@ -596,9 +610,28 @@ const onTrackingStatus = (event) => {
   console.log('trackingStatus:', status)
   if (status === 'NORMAL' && !groundReady) {
     groundReady = true
-    hintEl.textContent = ''
-    spawnPond()
+    hintEl.textContent = '池を置きたい場所をタップしてください'
+    console.log('トラッキング安定 → タップ待ち(地面選択フェーズ)')
   }
+}
+
+// タップした画面座標を実世界座標に変換して池を確定配置する
+let pondPlaced = false
+const handlePlacementTap = (clientX, clientY) => {
+  if (!groundReady || pondPlaced) return
+  const x = clientX / window.innerWidth
+  const y = clientY / window.innerHeight
+  const results = XR8.XrController.hitTest(x, y, ['FEATURE_POINT'])
+  console.log(`hitTest実行: x=${x.toFixed(2)} y=${y.toFixed(2)} → 結果${results ? results.length : 0}件`)
+  if (!results || results.length === 0) {
+    console.log('この位置には平面/特徴点が見つかりませんでした。別の場所をタップしてください')
+    return
+  }
+  const pos = results[0].position
+  const pondCenter = new THREE.Vector3(pos.x, pos.y, pos.z)
+  pondPlaced = true
+  hintEl.textContent = ''
+  spawnPond(pondCenter)
 }
 
 const startAR = () => {
