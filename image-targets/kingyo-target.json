@@ -1,0 +1,23 @@
+{
+  "imagePath": "image-targets/kingyo-target_luminance.png",
+  "metadata": null,
+  "name": "kingyo-target",
+  "type": "PLANAR",
+  "properties": {
+    "left": 128,
+    "top": 0,
+    "width": 768,
+    "height": 1024,
+    "isRotated": true,
+    "originalWidth": 1024,
+    "originalHeight": 1024
+  },
+  "resources": {
+    "originalImage": "kingyo-target_original.png",
+    "croppedImage": "kingyo-target_cropped.png",
+    "thumbnailImage": "kingyo-target_thumbnail.png",
+    "luminanceImage": "kingyo-target_luminance.png"
+  },
+  "created": 1784429637751,
+  "updated": 1784429637751
+}

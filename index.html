@@ -1,186 +1,89 @@
-<!DOCTYPE html>
-<html lang="ja">
+<!doctype html>
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>MindAR プロトタイプ</title>
-<!-- 公式ドキュメント記載の組み合わせ: A-Frame 1.5.0 + mind-ar@1.2.5 -->
-<script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-<style>
-  html, body {
-    margin: 0; padding: 0; width: 100%; height: 100%;
-    overflow: hidden;
-    font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
-  }
-  /* AR.jsの時と同じ轍を踏まないよう、bodyに不透明な背景色は付けない */
-  #startOverlay {
-    position: fixed; inset: 0; z-index: 20;
-    background: linear-gradient(160deg, #0b3d5c, #0a1f33);
-    color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 16px; text-align: center; padding: 24px; box-sizing: border-box;
-  }
-  #startOverlay h1 { font-size: 20px; margin: 0; }
-  #startOverlay p { font-size: 12.5px; opacity: 0.85; max-width: 320px; line-height: 1.7; margin: 0; }
-  #startOverlay img { width: 160px; border-radius: 8px; border: 2px solid #fff; }
-  #startBtn {
-    padding: 14px 40px; font-size: 16px; border: none; border-radius: 999px;
-    background: #ffb703; color: #1a1a1a; font-weight: bold;
-  }
-  #debugPanel {
-    position: fixed; bottom: env(safe-area-inset-bottom, 6px); left: 8px; right: 8px; z-index: 50;
-    background: rgba(0,0,0,0.7); color: #a0ffb0; font-size: 10px; font-family: monospace;
-    border-radius: 8px; max-height: 32vh; display: none; flex-direction: column;
-  }
-  #debugLogText { padding: 6px 8px; overflow-y: auto; white-space: pre-wrap; line-height: 1.4; flex: 1; }
-  #debugCopyBtn {
-    margin: 4px 6px 6px; padding: 4px 10px; font-size: 10px; border: none; border-radius: 6px;
-    background: #2a6b4a; color: #cfffe0; align-self: flex-end;
-  }
-  #statusPill {
-    position: fixed; top: env(safe-area-inset-top, 10px); left: 50%; transform: translateX(-50%);
-    z-index: 15; background: rgba(0,0,0,0.55); color: #fff; padding: 8px 16px; border-radius: 999px;
-    font-size: 12px; display: none;
-  }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>鉢-bit AR</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+    #camerafeed { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  </style>
+
+  <!-- Three.js本体 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r160/three.min.js"></script>
+
+  <!-- 8th Wall エンジン(SLAM込み・クローズドバイナリ / 商用利用OKの無償配布バイナリ) -->
+  <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
+    async crossorigin="anonymous" data-preload-chunks="slam"></script>
+
+  <!-- 補助UI(ローディング画面・エラーハンドリング等・MITライセンス) -->
+  <script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js"
+    crossorigin="anonymous"></script>
 </head>
 <body>
+  <canvas id="camerafeed"></canvas>
 
-<div id="startOverlay">
-  <h1>🎏 MindAR プロトタイプ</h1>
-  <p>MindAR公式のサンプルマーカー(下の画像)を印刷するか、別の画面に表示して映してテストするのら。まずはカメラ映像・ポイ表示・マーカー検出ログの確認だけが目的やで。</p>
-  <img src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.1.4/examples/image-tracking/assets/card-example/card.png" alt="サンプルマーカー">
-  <button id="startBtn">ARをはじめる</button>
-</div>
-
-<div id="statusPill">マーカーを探しています...</div>
-
-<div id="debugPanel">
-  <div id="debugLogText">ログ待機中...</div>
-  <button id="debugCopyBtn">ログ全部をコピー</button>
-</div>
-
-<script>
-  const logLines = [];
-  function log(msg) {
-    const t = new Date().toLocaleTimeString('ja-JP');
-    logLines.push(`[${t}] ${msg}`);
-    const el = document.getElementById('debugLogText');
-    el.textContent = logLines.join('\n');
-    el.scrollTop = el.scrollHeight;
-    console.log(msg);
-  }
-  window.addEventListener('error', (e) => {
-    log('JSエラー: ' + e.message + ' @' + (e.filename || '?') + ':' + (e.lineno || '?'));
-  });
-  window.addEventListener('unhandledrejection', (e) => {
-    log('Promiseエラー: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
-  });
-
-  document.getElementById('debugCopyBtn').addEventListener('click', () => {
-    const text = logLines.join('\n');
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => {
-        const btn = document.getElementById('debugCopyBtn');
-        const original = btn.textContent;
-        btn.textContent = 'コピーしたで！';
-        setTimeout(() => { btn.textContent = original; }, 1200);
-      }).catch(() => window.prompt('手動でコピーしてや', text));
-    } else {
-      window.prompt('手動でコピーしてや', text);
+  <script>
+    // ==== マーカー検出時のハンドラ ====
+    const onImageFound = (event) => {
+      const { name, position, rotation, scale } = event.detail
+      console.log('マーカー発見:', name)
+      if (window.myModel) {
+        window.myModel.position.copy(position)
+        window.myModel.quaternion.copy(rotation)
+        window.myModel.scale.setScalar(scale)
+        window.myModel.visible = true
+      }
     }
-  });
 
-  log('スクリプト評価開始');
-
-  document.getElementById('startBtn').addEventListener('click', () => {
-    document.getElementById('startOverlay').style.display = 'none';
-    document.getElementById('debugPanel').style.display = 'flex';
-    document.getElementById('statusPill').style.display = 'block';
-    startAR();
-  });
-
-  function startAR() {
-    log('A-Frameシーンを構築');
-
-    const sceneHtml = `
-      <a-scene mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.1.4/examples/image-tracking/assets/card-example/card.mind;"
-        color-space="sRGB"
-        renderer="colorManagement: true, physicallyCorrectLights"
-        vr-mode-ui="enabled: false"
-        device-orientation-permission-ui="enabled: false"
-        embedded
-        style="position:fixed; top:0; left:0; width:100%; height:100%; z-index:1;">
-        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-        <a-entity id="poiCamAnchor"></a-entity>
-        <a-entity id="markerTarget" mindar-image-target="targetIndex: 0">
-          <a-box position="0 0 0.1" scale="0.2 0.2 0.2" color="#4CC3D9"></a-box>
-        </a-entity>
-      </a-scene>`;
-    document.body.insertAdjacentHTML('beforeend', sceneHtml);
-
-    const sceneEl = document.querySelector('a-scene');
-
-    sceneEl.addEventListener('loaded', () => {
-      log('シーン読み込み完了(loaded)');
-    });
-    sceneEl.addEventListener('arReady', () => {
-      log('MindARエンジン準備完了(arReady)');
-      setupPoi();
-    });
-    sceneEl.addEventListener('arError', (e) => {
-      log('MindARエラー(arError): ' + JSON.stringify(e.detail || {}));
-    });
-
-    const targetEl = document.getElementById('markerTarget');
-    targetEl.addEventListener('targetFound', () => {
-      log('マーカー検出(targetFound)');
-      document.getElementById('statusPill').textContent = 'マーカー検出中';
-    });
-    targetEl.addEventListener('targetLost', () => {
-      log('マーカー見失い(targetLost)');
-      document.getElementById('statusPill').textContent = 'マーカーを探しています...';
-    });
-  }
-
-  function setupPoi() {
-    // カメラに追従するポイ(すくい網)を、8th Wall版と同じ構造で組む
-    const cameraEl = document.querySelector('a-camera');
-    if (!cameraEl || !cameraEl.object3D) {
-      log('カメラのobject3Dが取得できず、ポイ配置に失敗');
-      return;
+    // World Trackingが効いてる間は、見失っても位置を保持したまま消さない
+    const onImageLost = () => {
+      console.log('マーカー見失い(World Trackingで位置は保持継続)')
     }
-    const THREE = window.AFRAME.THREE;
-    const poiGroup = new THREE.Group();
 
-    const ringGeo = new THREE.TorusGeometry(0.07, 0.005, 12, 32);
-    const ringMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.5 });
-    poiGroup.add(new THREE.Mesh(ringGeo, ringMat));
+    // ==== Three.jsシーンの初期化 ====
+    const initScene = () => {
+      const { scene } = XR8.Threejs.xrScene()
 
-    const paperGeo = new THREE.CircleGeometry(0.065, 32);
-    const paperMat = new THREE.MeshStandardMaterial({
-      color: 0xfff6e0, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
-    });
-    const paper = new THREE.Mesh(paperGeo, paperMat);
-    paper.position.z = -0.004;
-    poiGroup.add(paper);
+      // 仮のオブジェクト(あとで鉢-bitの3Dモデル(.glb等)に差し替えてOK)
+      const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1)
+      const material = new THREE.MeshNormalMaterial()
+      window.myModel = new THREE.Mesh(geometry, material)
+      window.myModel.visible = false
+      scene.add(window.myModel)
 
-    const handleGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.2, 8);
-    const handleMat = new THREE.MeshStandardMaterial({ color: 0x8a5a2b });
-    const handle = new THREE.Mesh(handleGeo, handleMat);
-    handle.rotation.x = Math.PI / 2;
-    handle.position.set(0, -0.075, 0.11);
-    poiGroup.add(handle);
+      const light = new THREE.HemisphereLight(0xffffff, 0x444444)
+      scene.add(light)
+    }
 
-    poiGroup.position.set(0, 0.06, -0.3);
-    cameraEl.object3D.add(poiGroup);
+    // ==== XR8起動処理 ====
+    const onxrloaded = () => {
+      XR8.XrController.configure({
+        imageTargets: ['./image-targets/kingyo-target.json'],
+      })
 
-    const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
-    document.querySelector('a-scene').object3D.add(light);
+      XR8.addCameraPipelineModules([
+        XR8.GlTextureRenderer.pipelineModule(),   // カメラ映像を描画
+        XR8.Threejs.pipelineModule(),             // Three.jsシーン生成
+        XR8.XrController.pipelineModule(),        // SLAM(World Tracking)有効化
+        XRExtras.AlmostThere.pipelineModule(),    // 非対応ブラウザ対策
+        XRExtras.FullWindowCanvas.pipelineModule(),
+        XRExtras.Loading.pipelineModule(),
+        XRExtras.RuntimeError.pipelineModule(),
+        {
+          name: 'kingyo-app',
+          onStart: initScene,
+          listeners: [
+            { event: 'reality.imagefound', process: onImageFound },
+            { event: 'reality.imagelost', process: onImageLost },
+          ],
+        },
+      ])
 
-    log('ポイ配置完了');
-  }
-</script>
+      XR8.run({ canvas: document.getElementById('camerafeed') })
+    }
 
+    window.XR8 ? onxrloaded() : window.addEventListener('xrloaded', onxrloaded)
+  </script>
 </body>
 </html>
