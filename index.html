@@ -532,7 +532,7 @@ async function onxrloaded() {
   try {
     const targetData = await fetch('./image-targets/kingyo-marker.json').then(r => r.json());
     XR8.XrController.configure({
-      disableWorldTracking: true, // 桶の位置はマーカー基準に一本化し、SLAMのドリフトを避ける
+      disableWorldTracking: false, // マーカーが見えない間もSLAMで位置を推定し続けるよう併用する
       imageTargetData: [targetData],
     });
     log('Image Target読み込みOK: ' + targetData.name);
@@ -563,7 +563,8 @@ async function onxrloaded() {
 function goldfishGamePipelineModule() {
   let scene, camera;
   let poiGroup, poiPaper;
-  let anchorGroup = null;       // たらい設置後のアンカー（フリー金魚の親）
+  let anchorGroup = null;       // マーカーの位置・向きをそのまま反映するアンカー
+  let tubGroup = null;          // 実際の桶の中身(マーカーから少し離して配置)
   let placed = false;
   let freeFish = [];            // {mesh, basePos, phase, speed, radius, invulnerable}
   let heldFish = null;          // 捕獲中の1匹 {mesh, type, holdTimer, balance:{x,y}, baseline, buffed}
@@ -582,6 +583,7 @@ function goldfishGamePipelineModule() {
   const TILT_ACCEL = 0.05;       // 傾きが与える加速度の強さ
   const WANDER_ACCEL_BASE = 0.3; // 金魚の暴れが与える加速度の強さ
   const FRICTION_PER_SEC = 3.2;  // 摩擦の強さ(大きいほどすぐ減速する)
+  const TUB_OFFSET_FROM_MARKER = 0.35; // 桶をマーカー面からどれだけ離すか(m)。近づきすぎ対策
   const MAX_SPEED = 0.22;        // 金魚が出せる最大速度
 
   function setupPoi() {
@@ -620,18 +622,25 @@ function goldfishGamePipelineModule() {
     if (quaternion) anchorGroup.quaternion.copy(quaternion);
     scene.add(anchorGroup);
 
+    // 桶の中身(水面・リング・金魚)はマーカーそのものではなく、
+    // マーカー面から少し離れた位置にまとめる。
+    // すくう時にスマホがマーカーへ接近しすぎて認識を失わないようにするため。
+    tubGroup = new THREE.Group();
+    tubGroup.position.set(0, 0, TUB_OFFSET_FROM_MARKER);
+    anchorGroup.add(tubGroup);
+
     // 水面(たらい)の見た目。マーカーの面と平行になるよう、回転は加えない
     const waterGeo = new THREE.CircleGeometry(0.28, 40);
     const waterMat = new THREE.MeshStandardMaterial({
       color: 0x4fb0d6, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
     });
     const water = new THREE.Mesh(waterGeo, waterMat);
-    anchorGroup.add(water);
+    tubGroup.add(water);
 
     const rimGeo = new THREE.TorusGeometry(0.28, 0.012, 10, 40);
     const rimMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
     const rim = new THREE.Mesh(rimGeo, rimMat);
-    anchorGroup.add(rim);
+    tubGroup.add(rim);
 
     placed = true;
     document.getElementById('placeHint').classList.add('hidden');
@@ -672,7 +681,7 @@ function goldfishGamePipelineModule() {
   function spawnFreeFish() {
     const type = pickRandomFishType();
     const mesh = createFishMesh(type, 0.014 + Math.random() * 0.006);
-    anchorGroup.add(mesh);
+    tubGroup.add(mesh);
     freeFish.push({
       mesh, type,
       basePos: new THREE.Vector3((Math.random() - 0.5) * 0.35, (Math.random() - 0.5) * 0.35, 0.01),
@@ -685,7 +694,7 @@ function goldfishGamePipelineModule() {
 
   function spawnSummonFish() {
     const mesh = createFishMesh(summonFishType, 0.08);
-    anchorGroup.add(mesh);
+    tubGroup.add(mesh);
     freeFish.push({
       mesh, type: summonFishType,
       basePos: new THREE.Vector3(0, 0, 0.03),
@@ -697,7 +706,7 @@ function goldfishGamePipelineModule() {
     // stage1 -> stage2 遷移。ポイのローカル座標系へ持ち替える
     const worldPos = new THREE.Vector3();
     fishEntry.mesh.getWorldPosition(worldPos);
-    anchorGroup.remove(fishEntry.mesh);
+    tubGroup.remove(fishEntry.mesh);
     poiGroup.add(fishEntry.mesh);
     fishEntry.mesh.position.set(0, -0.05, -0.004);
 
@@ -743,7 +752,7 @@ function goldfishGamePipelineModule() {
     const mesh = heldFish.mesh;
     showBanner('にげられた！');
     poiGroup.remove(mesh);
-    anchorGroup.add(mesh);
+    tubGroup.add(mesh);
     mesh.scale.setScalar(0.001);
     const targetScale = mesh.userData.baseScale || 1;
     let t = 0;
