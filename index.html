@@ -616,10 +616,11 @@ function goldfishGamePipelineModule() {
     camera.add(poiGroup);
   }
 
-  function placeAnchor(position, quaternion) {
+  function placeAnchor(position, quaternion, scale) {
     anchorGroup = new THREE.Group();
     anchorGroup.position.copy(position);
     if (quaternion) anchorGroup.quaternion.copy(quaternion);
+    if (typeof scale === 'number') anchorGroup.scale.setScalar(scale);
     scene.add(anchorGroup);
 
     // 桶の中身(水面・リング・金魚)はマーカーそのものではなく、
@@ -660,6 +661,13 @@ function goldfishGamePipelineModule() {
   function updateAnchorFromDetail(detail) {
     if (!anchorGroup || !detail) return;
     if (detail.position) anchorGroup.position.set(detail.position.x, detail.position.y, detail.position.z);
+    if (typeof detail.scale === 'number') {
+      // 8th Wallは印刷物の実サイズを知らないため、検出のたびに
+      // 「距離」と「scale(推定倍率)」の解釈がブレることがある。
+      // scaleを桶の見た目にも反映させることで、判定距離が変わっても
+      // 画面上の見え方(大きさ)が一定になるよう補正する。
+      anchorGroup.scale.setScalar(detail.scale);
+    }
     if (detail.rotation) {
       const r = detail.rotation;
       if (!rotationShapeLogged) {
@@ -796,7 +804,7 @@ function goldfishGamePipelineModule() {
       if (detail.rotation && typeof detail.rotation.w === 'number') {
         q.set(detail.rotation.x, detail.rotation.y, detail.rotation.z, detail.rotation.w);
       }
-      placeAnchor(new THREE.Vector3(detail.position.x, detail.position.y, detail.position.z), q);
+      placeAnchor(new THREE.Vector3(detail.position.x, detail.position.y, detail.position.z), q, detail.scale);
     } else {
       updateAnchorFromDetail(detail);
     }
