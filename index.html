@@ -70,20 +70,6 @@
     z-index: 10; background: rgba(0,0,0,0.55); color: #fff; padding: 10px 18px;
     border-radius: 999px; font-size: 13px; pointer-events: none;
   }
-  #reticle {
-    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    z-index: 12; width: 46px; height: 46px; pointer-events: none;
-  }
-  #reticleRing {
-    width: 100%; height: 100%; border: 3px solid rgba(255,255,255,0.85);
-    border-radius: 50%; box-shadow: 0 0 6px rgba(0,0,0,0.5);
-    position: relative;
-  }
-  #reticleRing::before, #reticleRing::after {
-    content: ''; position: absolute; background: rgba(255,255,255,0.85);
-  }
-  #reticleRing::before { top: -10px; left: 50%; width: 2px; height: 8px; transform: translateX(-50%); }
-  #reticleRing::after { bottom: -10px; left: 50%; width: 2px; height: 8px; transform: translateX(-50%); }
   #debugPanel {
     position: fixed; bottom: env(safe-area-inset-bottom, 6px); left: 8px; right: 8px; z-index: 50;
     background: rgba(0,0,0,0.7); color: #a0ffb0; font-size: 10px; font-family: monospace;
@@ -150,9 +136,6 @@
 <div id="catchBanner"></div>
 <div id="liftBanner" class="hidden">引き上げろ！</div>
 <div id="placeHint" class="hidden">マーカーにカメラを向けてね</div>
-<div id="reticle" class="hidden">
-  <div id="reticleRing"></div>
-</div>
 <div id="debugPanel">
   <div id="debugLogText">ログ待機中...</div>
   <button id="debugCopyBtn">ログ全部をコピー</button>
@@ -604,7 +587,7 @@ function goldfishGamePipelineModule() {
   const TILT_ACCEL = 0.05;       // 傾きが与える加速度の強さ
   const WANDER_ACCEL_BASE = 0.3; // 金魚の暴れが与える加速度の強さ
   const FRICTION_PER_SEC = 3.2;  // 摩擦の強さ(大きいほどすぐ減速する)
-  const TUB_OFFSET_FROM_MARKER = 0.55; // 桶をマーカー面からどれだけ離すか(m)。近づきすぎ対策
+  const TUB_OFFSET_FROM_MARKER = 0.15; // 桶をマーカー面からどれだけ離すか(m)。射出式なので近くてOK
   const TUB_RADIUS = 0.42;       // 桶(水面)の半径。すぐ捕まらないよう広めに
   const FLEE_RADIUS = 0.22;      // ポイがこの距離まで近づくと金魚が逃げ始める
   const FLEE_ACCEL = 0.5;        // 逃げる時の加速度の強さ
@@ -632,6 +615,21 @@ function goldfishGamePipelineModule() {
     poiPaper = new THREE.Mesh(paperGeo, paperMat);
     poiPaper.position.z = -0.004;
     poiGroup.add(poiPaper);
+
+    // ポイの真ん中に照準マーク(十字)を付ける。ここが飛んでいく先の基準点になる
+    const crosshairMat = new THREE.MeshBasicMaterial({ color: 0xff5040 });
+    const barGeoH = new THREE.BoxGeometry(0.024, 0.0025, 0.0015);
+    const barH = new THREE.Mesh(barGeoH, crosshairMat);
+    barH.position.z = -0.006;
+    poiGroup.add(barH);
+    const barGeoV = new THREE.BoxGeometry(0.0025, 0.024, 0.0015);
+    const barV = new THREE.Mesh(barGeoV, crosshairMat);
+    barV.position.z = -0.006;
+    poiGroup.add(barV);
+    const dotGeo = new THREE.CircleGeometry(0.003, 12);
+    const dot = new THREE.Mesh(dotGeo, crosshairMat);
+    dot.position.z = -0.0055;
+    poiGroup.add(dot);
 
     // 持ち手はリングの下からプレイヤー側(カメラ側)に伸びる形に
     const handleGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.2, 8);
@@ -677,11 +675,12 @@ function goldfishGamePipelineModule() {
     poiState = 'idle';
   }
 
-  function placeAnchor(position, quaternion, scale) {
+  function placeAnchor(position, quaternion) {
     anchorGroup = new THREE.Group();
     anchorGroup.position.copy(position);
     if (quaternion) anchorGroup.quaternion.copy(quaternion);
-    if (typeof scale === 'number') anchorGroup.scale.setScalar(scale);
+    // detail.scaleは8th Wall側の推測値でセッションごとにブレるため使わず、
+    // 常に等倍(1,1,1)のまま固定して、桶のサイズが安定するようにする
     scene.add(anchorGroup);
 
     // 桶の中身(水面・リング・金魚)はマーカーそのものではなく、
@@ -711,7 +710,6 @@ function goldfishGamePipelineModule() {
       for (let i = 0; i < 5; i++) spawnFreeFish();
       roundActive = true;
       timeLeft = ROUND_SECONDS;
-      document.getElementById('reticle').classList.remove('hidden');
       log('マーカー検出。たらい設置完了。ラウンド開始');
     } else if (arMode === 'summon') {
       spawnSummonFish();
@@ -846,7 +844,6 @@ function goldfishGamePipelineModule() {
   function endRound() {
     roundActive = false;
     document.getElementById('hud').classList.add('hidden');
-    document.getElementById('reticle').classList.add('hidden');
     const total = Object.values(caughtThisRound).reduce((a, b) => a + b, 0);
     document.getElementById('resultSummary').textContent = `合計 ${total}匹すくったで！`;
     const listEl = document.getElementById('resultList');
@@ -869,7 +866,7 @@ function goldfishGamePipelineModule() {
       if (detail.rotation && typeof detail.rotation.w === 'number') {
         q.set(detail.rotation.x, detail.rotation.y, detail.rotation.z, detail.rotation.w);
       }
-      placeAnchor(new THREE.Vector3(detail.position.x, detail.position.y, detail.position.z), q, detail.scale);
+      placeAnchor(new THREE.Vector3(detail.position.x, detail.position.y, detail.position.z), q);
     } else {
       updateAnchorFromDetail(detail);
     }
