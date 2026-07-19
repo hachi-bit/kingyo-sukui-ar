@@ -118,13 +118,25 @@
     }
 
     // ==== XR8起動処理 ====
-    const onxrloaded = () => {
+    const onxrloaded = async () => {
       console.log('xrloadedイベント発火。XR8初期化を開始します')
 
+      // マーカーデータ(JSON)を事前にfetchで読み込む(imageTargetDataは中身そのものを要求する仕様)
+      let targetData
+      try {
+        const res = await fetch('./image-targets/kingyo-target.json')
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        targetData = await res.json()
+        console.log('マーカーデータのfetch成功:', targetData.name)
+      } catch (e) {
+        console.error(`マーカーデータの読み込み失敗: ${e.message}`)
+        return
+      }
+
       XR8.XrController.configure({
-        imageTargets: ['./image-targets/kingyo-target.json'],
+        imageTargetData: [targetData],
       })
-      console.log('XrController.configure() 完了')
+      console.log('XrController.configure() 完了(imageTargetData使用)')
 
       XR8.addCameraPipelineModules([
         XR8.GlTextureRenderer.pipelineModule(),   // カメラ映像を描画
