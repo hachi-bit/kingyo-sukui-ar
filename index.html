@@ -70,6 +70,20 @@
     z-index: 10; background: rgba(0,0,0,0.55); color: #fff; padding: 10px 18px;
     border-radius: 999px; font-size: 13px; pointer-events: none;
   }
+  #reticle {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 12; width: 46px; height: 46px; pointer-events: none;
+  }
+  #reticleRing {
+    width: 100%; height: 100%; border: 3px solid rgba(255,255,255,0.85);
+    border-radius: 50%; box-shadow: 0 0 6px rgba(0,0,0,0.5);
+    position: relative;
+  }
+  #reticleRing::before, #reticleRing::after {
+    content: ''; position: absolute; background: rgba(255,255,255,0.85);
+  }
+  #reticleRing::before { top: -10px; left: 50%; width: 2px; height: 8px; transform: translateX(-50%); }
+  #reticleRing::after { bottom: -10px; left: 50%; width: 2px; height: 8px; transform: translateX(-50%); }
   #debugPanel {
     position: fixed; bottom: env(safe-area-inset-bottom, 6px); left: 8px; right: 8px; z-index: 50;
     background: rgba(0,0,0,0.7); color: #a0ffb0; font-size: 10px; font-family: monospace;
@@ -136,6 +150,9 @@
 <div id="catchBanner"></div>
 <div id="liftBanner" class="hidden">引き上げろ！</div>
 <div id="placeHint" class="hidden">マーカーにカメラを向けてね</div>
+<div id="reticle" class="hidden">
+  <div id="reticleRing"></div>
+</div>
 <div id="debugPanel">
   <div id="debugLogText">ログ待機中...</div>
   <button id="debugCopyBtn">ログ全部をコピー</button>
@@ -563,6 +580,11 @@ async function onxrloaded() {
 function goldfishGamePipelineModule() {
   let scene, camera;
   let poiGroup, poiPaper;
+  let poiState = 'idle';        // 'idle'(手元) | 'flying'(飛行中) | 'reeling'(空振りで巻き戻り中)
+  const poiVelocity = new THREE.Vector3();
+  let poiTraveledDist = 0;
+  const poiReelFrom = new THREE.Vector3();
+  let poiReelTimer = 0;
   let anchorGroup = null;       // マーカーの位置・向きをそのまま反映するアンカー
   let tubGroup = null;          // 実際の桶の中身(マーカーから少し離して配置)
   let placed = false;
@@ -575,7 +597,6 @@ function goldfishGamePipelineModule() {
   let roundActive = false;
   const caughtThisRound = {};
 
-  const CATCH_RADIUS = 0.09;     // ポイに触れたと判定する距離
   const HOLD_RADIUS = 0.025;     // これより中心に近ければキープ扱い
   const ESCAPE_RADIUS = 0.058;   // これを超えたら逃げられる（紙面の縁あたり）
   const REQUIRED_HOLD = 1.1;     // 何秒キープしたら成功か
@@ -587,7 +608,13 @@ function goldfishGamePipelineModule() {
   const TUB_RADIUS = 0.42;       // 桶(水面)の半径。すぐ捕まらないよう広めに
   const FLEE_RADIUS = 0.22;      // ポイがこの距離まで近づくと金魚が逃げ始める
   const FLEE_ACCEL = 0.5;        // 逃げる時の加速度の強さ
+  const PROJECTILE_SPEED_BASE = 0.55; // ポイの飛ぶ速さ(m/s)。遅めで予測が必要
+  const HIT_RADIUS = 0.09;       // 飛んでいるポイが金魚に当たったと判定する距離
+  const PROJECTILE_MAX_RANGE = 1.6; // これ以上飛んで何もヒットしなければ空振り
+  const REEL_DURATION = 0.35;    // 空振り時に手元へ巻き戻る時間(秒)
   const MAX_SPEED = 0.22;        // 金魚が出せる最大速度
+
+  const POI_HOME_LOCAL = { x: 0, y: 0.06, z: -0.3 }; // 手元(カメラ基準)でのポイの定位置
 
   function setupPoi() {
     poiGroup = new THREE.Group();
@@ -615,8 +642,39 @@ function goldfishGamePipelineModule() {
     poiGroup.add(handle);
 
     // スマホの少し上・少し先、画面とほぼ平行に固定
-    poiGroup.position.set(0, 0.06, -0.3);
+    poiGroup.position.set(POI_HOME_LOCAL.x, POI_HOME_LOCAL.y, POI_HOME_LOCAL.z);
     camera.add(poiGroup);
+  }
+
+  function tryShoot() {
+    if (poiState !== 'idle' || !placed || !roundActive || heldFish) return;
+    const worldPos = new THREE.Vector3();
+    poiGroup.getWorldPosition(worldPos);
+    const worldQuat = new THREE.Quaternion();
+    camera.getWorldQuaternion(worldQuat);
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(worldQuat).normalize();
+
+    camera.remove(poiGroup);
+    scene.add(poiGroup);
+    poiGroup.position.copy(worldPos);
+    poiGroup.quaternion.copy(worldQuat);
+
+    const buffed = document.getElementById('autoBuffCheckbox').checked;
+    let speed = PROJECTILE_SPEED_BASE;
+    if (buffed && spendCoins(10)) { speed *= 1.8; refreshCoinDisplays(); log('コイン強化: 射出速度アップ'); }
+
+    poiVelocity.copy(dir).multiplyScalar(speed);
+    poiTraveledDist = 0;
+    poiState = 'flying';
+    log('ポイを射出！');
+  }
+
+  function reelPoiHome() {
+    scene.remove(poiGroup);
+    camera.add(poiGroup);
+    poiGroup.position.set(POI_HOME_LOCAL.x, POI_HOME_LOCAL.y, POI_HOME_LOCAL.z);
+    poiGroup.quaternion.identity();
+    poiState = 'idle';
   }
 
   function placeAnchor(position, quaternion, scale) {
@@ -653,6 +711,7 @@ function goldfishGamePipelineModule() {
       for (let i = 0; i < 5; i++) spawnFreeFish();
       roundActive = true;
       timeLeft = ROUND_SECONDS;
+      document.getElementById('reticle').classList.remove('hidden');
       log('マーカー検出。たらい設置完了。ラウンド開始');
     } else if (arMode === 'summon') {
       spawnSummonFish();
@@ -664,13 +723,9 @@ function goldfishGamePipelineModule() {
   function updateAnchorFromDetail(detail) {
     if (!anchorGroup || !detail) return;
     if (detail.position) anchorGroup.position.set(detail.position.x, detail.position.y, detail.position.z);
-    if (typeof detail.scale === 'number') {
-      // 8th Wallは印刷物の実サイズを知らないため、検出のたびに
-      // 「距離」と「scale(推定倍率)」の解釈がブレることがある。
-      // scaleを桶の見た目にも反映させることで、判定距離が変わっても
-      // 画面上の見え方(大きさ)が一定になるよう補正する。
-      anchorGroup.scale.setScalar(detail.scale);
-    }
+    // scaleはここでは更新しない。毎フレーム反映すると、8th Wallの推定距離が
+    // 検出のたびにブレることで桶がジワジワ近づいたり遠のいたりしてしまうため、
+    // scaleは最初にマーカーを見つけた瞬間(placeAnchor)の1回だけ適用する。
     if (detail.rotation) {
       const r = detail.rotation;
       if (!rotationShapeLogged) {
@@ -791,6 +846,7 @@ function goldfishGamePipelineModule() {
   function endRound() {
     roundActive = false;
     document.getElementById('hud').classList.add('hidden');
+    document.getElementById('reticle').classList.add('hidden');
     const total = Object.values(caughtThisRound).reduce((a, b) => a + b, 0);
     document.getElementById('resultSummary').textContent = `合計 ${total}匹すくったで！`;
     const listEl = document.getElementById('resultList');
@@ -849,6 +905,9 @@ function goldfishGamePipelineModule() {
         origin: camera.position, facing: camera.quaternion,
       });
 
+      window.addEventListener('touchstart', tryShoot);
+      window.addEventListener('mousedown', tryShoot);
+
       log('ゲームシーン初期化完了。マーカー検出待ち');
     },
     onUpdate: () => {
@@ -903,18 +962,27 @@ function goldfishGamePipelineModule() {
         if (tailMesh) tailMesh.rotation.y = Math.sin(t * (f.fleeing > 0 ? 16 : 8) + f.phase) * 0.5;
       });
 
-      // stage1: ポイとの接触判定（捕獲モードのみ / 無敵時間中は除外）
-      if (arMode === 'catch' && roundActive && !heldFish) {
-        const poiWorld = new THREE.Vector3();
-        poiGroup.getWorldPosition(poiWorld);
+      // stage1: 射出したポイの飛行・命中・空振り処理（召喚モードでは動作しない）
+      if (arMode === 'catch' && poiState === 'flying') {
+        const step = poiVelocity.clone().multiplyScalar(dt);
+        poiGroup.position.add(step);
+        poiTraveledDist += step.length();
+
+        const poiWorld = poiGroup.position;
+        let hitFish = null;
         for (const f of freeFish) {
           if (f.invulnerable > 0) continue;
           const fishWorld = new THREE.Vector3();
           f.mesh.getWorldPosition(fishWorld);
-          if (fishWorld.distanceTo(poiWorld) < CATCH_RADIUS) {
-            tryGrab(f);
-            break;
-          }
+          if (fishWorld.distanceTo(poiWorld) < HIT_RADIUS) { hitFish = f; break; }
+        }
+
+        if (hitFish) {
+          reelPoiHome();
+          tryGrab(hitFish);
+        } else if (poiTraveledDist > PROJECTILE_MAX_RANGE) {
+          showBanner('空振り…');
+          reelPoiHome();
         }
       }
 
