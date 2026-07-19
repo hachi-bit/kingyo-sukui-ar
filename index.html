@@ -1,26 +1,33 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>ARデジタル金魚すくい</title>
+<script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js" async crossorigin="anonymous" data-preload-chunks="slam"></script>
+<script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
-    overflow: hidden; background: #0a1f33;
+    overflow: hidden;
     font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
     -webkit-user-select: none; user-select: none;
   }
   #camerafeed { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  #arjsWrap {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;
+  }
+  .a-enter-vr, .a-enter-ar { display: none !important; }
   .screen {
     position: fixed; inset: 0; z-index: 30;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    color: #fff; text-align: center; box-sizing: border-box; padding: 24px; gap: 14px;
+    color: #fff; text-align: center; box-sizing: border-box; padding: 24px;
   }
   .hidden { display: none !important; }
 
-  /* ===== タイトル ===== */
-  #titleScreen { background: linear-gradient(160deg, #0b3d5c, #0a1f33); }
+  /* タイトル */
+  #titleScreen { background: linear-gradient(160deg, #0b3d5c, #0a1f33); gap: 14px; }
   #titleScreen h1 { font-size: 24px; margin: 0; }
   #titleScreen p { font-size: 12.5px; opacity: 0.8; max-width: 320px; line-height: 1.6; margin: 0; }
   .bigBtn {
@@ -28,643 +35,874 @@
     background: #ffb703; color: #1a1a1a; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   }
   .subBtn {
-    padding: 11px 30px; font-size: 14px; border-radius: 999px;
+    padding: 11px 30px; font-size: 14px; border: none; border-radius: 999px;
     background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.4);
   }
   #coinDisplayTitle { font-size: 15px; background: rgba(0,0,0,0.35); padding: 6px 16px; border-radius: 999px; }
-  .titleBtnRow { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  #autoBuffRow { font-size: 12px; opacity: 0.85; display: flex; align-items: center; gap: 6px; }
 
-  /* ===== 図鑑 ===== */
-  #zukanScreen { background: rgba(5,15,25,0.97); }
-  #zukanGrid {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
-    max-width: 380px; width: 100%; max-height: 50vh; overflow-y: auto; padding: 6px;
-  }
-  .zukanCell {
-    aspect-ratio: 1; border-radius: 10px; background: rgba(255,255,255,0.08);
-    display: flex; align-items: center; justify-content: center; font-size: 26px;
-    border: 1px solid rgba(255,255,255,0.15); position: relative;
-  }
-  .zukanCell.locked { opacity: 0.3; }
-  .zukanCell .rarityDot {
-    position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%;
-  }
-
-  /* ===== ショップ(強化) ===== */
-  #shopScreen { background: rgba(5,15,25,0.97); }
-  .shopItem {
-    width: 100%; max-width: 340px; display: flex; justify-content: space-between; align-items: center;
-    background: rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 16px; font-size: 13px;
-  }
-  .shopItem button {
-    padding: 6px 14px; border-radius: 999px; border: none; background: #ffb703; color: #1a1a1a; font-size: 12px; font-weight: bold;
-  }
-  .shopItem button:disabled { background: #555; color: #999; }
-  #activeBuffRow { font-size: 11.5px; opacity: 0.85; min-height: 16px; }
-
-  /* ===== AR中HUD ===== */
+  /* HUD (AR中) */
   #hud {
     position: fixed; top: 0; left: 0; width: 100%; z-index: 10;
     pointer-events: none; color: #fff; box-sizing: border-box;
-    padding: max(env(safe-area-inset-top), 10px) 14px 0 14px;
+    padding: env(safe-area-inset-top, 10px) 12px 0;
     display: flex; justify-content: space-between; align-items: flex-start;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
   }
-  #hintText {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 10; text-align: center;
-    padding-top: max(env(safe-area-inset-top), 10px);
-    color: #fff; font-size: 13px; text-shadow: 0 1px 3px rgba(0,0,0,0.9); pointer-events: none;
+  .hudPill { background: rgba(0,0,0,0.55); border-radius: 999px; padding: 7px 14px; font-size: 13px; }
+  #catchBanner {
+    position: fixed; top: 40%; left: 50%; transform: translate(-50%,-50%);
+    z-index: 15; font-size: 26px; font-weight: bold; color: #ffe066;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.8); pointer-events: none; opacity: 0; transition: opacity 0.15s;
   }
-  #coinHud { background: rgba(0,0,0,0.4); padding: 5px 12px; border-radius: 999px; font-size: 13px; }
-  #backBtn {
-    background: rgba(0,0,0,0.4); border: none; color: #fff; border-radius: 999px;
-    padding: 6px 14px; font-size: 12px; pointer-events: auto;
+  #liftBanner {
+    position: fixed; top: 32%; left: 50%; transform: translate(-50%,-50%);
+    z-index: 16; font-size: 44px; font-weight: 900; color: #7cffb0;
+    text-shadow: 0 3px 10px rgba(0,0,0,0.85), 0 0 20px rgba(124,255,176,0.6);
+    pointer-events: none; letter-spacing: 2px;
+    animation: liftPulse 0.6s ease-in-out infinite alternate;
   }
-  #catchEffectText {
-    position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
-    font-size: 22px; font-weight: bold; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.8);
-    z-index: 15; pointer-events: none; opacity: 0; transition: none;
+  @keyframes liftPulse {
+    from { transform: translate(-50%,-50%) scale(1); }
+    to   { transform: translate(-50%,-50%) scale(1.08); }
   }
-  #durabilityBarWrap {
-    position: fixed; bottom: max(env(safe-area-inset-bottom), 16px); left: 50%; transform: translateX(-50%);
-    width: 60%; max-width: 260px; height: 10px; background: rgba(255,255,255,0.25); border-radius: 999px;
-    overflow: hidden; z-index: 10; display: none;
+  #placeHint {
+    position: fixed; bottom: 14%; left: 50%; transform: translateX(-50%);
+    z-index: 10; background: rgba(0,0,0,0.55); color: #fff; padding: 10px 18px;
+    border-radius: 999px; font-size: 13px; pointer-events: none;
   }
-  #durabilityBar { height: 100%; width: 100%; background: #ffb703; transition: width 0.1s linear; }
+  #debugPanel {
+    position: fixed; bottom: env(safe-area-inset-bottom, 6px); left: 8px; right: 8px; z-index: 50;
+    background: rgba(0,0,0,0.7); color: #a0ffb0; font-size: 10px; font-family: monospace;
+    border-radius: 8px; max-height: 30vh; display: flex; flex-direction: column;
+  }
+  #debugLogText {
+    padding: 6px 8px; overflow-y: auto; white-space: pre-wrap; line-height: 1.4; flex: 1;
+  }
+  #debugCopyBtn {
+    margin: 4px 6px 6px; padding: 4px 10px; font-size: 10px; border: none; border-radius: 6px;
+    background: #2a6b4a; color: #cfffe0; align-self: flex-end;
+  }
 
-  #errorScreen {
-    position: fixed; inset: 0; background: #111; color: #fff; display: none;
-    align-items: center; justify-content: center; text-align: center;
-    font-family: sans-serif; padding: 24px; z-index: 100; font-size: 14px; line-height: 1.7;
+  /* 終了画面 */
+  #resultScreen { background: rgba(5,15,25,0.94); gap: 10px; }
+  #resultList { max-height: 40vh; overflow-y: auto; width: 100%; max-width: 340px; }
+  .resultRow { display: flex; justify-content: space-between; padding: 6px 4px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+
+  /* 図鑑 */
+  #galleryListScreen { background: #0a1f33; justify-content: flex-start; padding-top: env(safe-area-inset-top, 20px); }
+  #galleryGrid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; width: 100%; max-width: 380px; margin-top: 16px;
+  }
+  .fishCard {
+    background: rgba(255,255,255,0.08); border-radius: 14px; padding: 12px; font-size: 12px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+  }
+  .fishCard.locked { opacity: 0.35; }
+  .fishSwatch { width: 40px; height: 40px; border-radius: 50%; }
+  .backBtn {
+    position: fixed; top: env(safe-area-inset-top, 14px); left: 14px; z-index: 31;
+    background: rgba(0,0,0,0.5); color: #fff; border: none; border-radius: 999px;
+    padding: 9px 18px; font-size: 13px;
   }
 
-  /* ===== デバッグログパネル(折りたたみ式) ===== */
-  #logToggleBtn {
-    position: fixed; left: 8px; bottom: 8px; z-index: 10001;
-    background: rgba(0,0,0,0.5); color: #0f0; border: 1px solid #444; border-radius: 6px;
-    padding: 5px 10px; font-size: 11px; font-family: monospace;
-  }
-  #logPanel {
-    position: absolute; left: 0; right: 0; bottom: 0; max-height: 40%;
-    overflow-y: auto; background: rgba(0,0,0,0.9); color: #0f0;
-    font: 11px/1.4 monospace; padding: 8px; box-sizing: border-box;
-    z-index: 10000; white-space: pre-wrap; word-break: break-all; display: none;
-  }
+  /* 鑑賞ビュー */
+  #galleryViewScreen { background: #05121f; padding: 0; }
+  #viewCanvasWrap { width: 100%; height: 62%; position: relative; }
+  #viewCanvas { width: 100%; height: 100%; display: block; }
+  #galleryViewInfo { padding: 14px; }
+  #galleryViewInfo h2 { margin: 0 0 6px; font-size: 18px; }
+  #galleryViewInfo p { margin: 0 0 14px; font-size: 12px; opacity: 0.75; }
 </style>
-
-<!-- Three.js本体(r150以降はグローバル版ビルドが廃止されたため、まだ存在するr149系を指定。今回の会話中で確認済みの正しいバージョン) -->
-<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
-
-<!-- 8th Wall エンジン(SLAM込み・クローズドバイナリ・無償配布) -->
-<script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
-  async crossorigin="anonymous" data-preload-chunks="slam"></script>
-
-<!-- 補助UI(ローディング画面・エラーハンドリング等) -->
-<script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js"
-  crossorigin="anonymous"></script>
 </head>
 <body>
 
-<canvas id="camerafeed"></canvas>
-
-<!-- ===== タイトル画面 ===== -->
+<!-- タイトル画面 -->
 <div id="titleScreen" class="screen">
-  <div id="coinDisplayTitle">🪙 <span id="coinCountTitle">0</span></div>
-  <h1>ARデジタル金魚すくい</h1>
-  <p>スマホを金魚に近づけてポイですくおう。すくった後はポイの上でスマホを傾けてバランスを取って捕獲や。</p>
-  <button class="bigBtn" id="startBtn">はじめる</button>
-  <div class="titleBtnRow">
-    <button class="subBtn" id="openZukanBtn">📖 図鑑</button>
-    <button class="subBtn" id="openShopBtn">🛠 ポイ強化</button>
+  <h1>🎏 ARデジタル金魚すくい</h1>
+  <p>スマホを動かしてポイで金魚をすくおう。ポイに金魚が触れたら、少し待ってから傾けて中央にキープしてすくいきってね。</p>
+  <div id="coinDisplayTitle">🪙 コイン: <span id="coinCountTitle">0</span></div>
+  <button id="startSlamBtn" class="bigBtn">AR金魚すくいを始める</button>
+  <button id="openGalleryBtn" class="subBtn">図鑑・鑑賞モード</button>
+  <label id="autoBuffRow">
+    <input type="checkbox" id="autoBuffCheckbox"> すくう時コインで自動強化する（1回10コイン）
+  </label>
+</div>
+
+<!-- AR中HUD -->
+<div id="hud" class="hidden">
+  <div class="hudPill">⏱️ <span id="timerDisplay">--</span>秒</div>
+  <div class="hudPill">🪙 <span id="coinCountHud">0</span></div>
+</div>
+<div id="catchBanner"></div>
+<div id="liftBanner" class="hidden">引き上げろ！</div>
+<div id="placeHint" class="hidden">床やたらいをタップして金魚すくいスポットを置いてね</div>
+<div id="debugPanel">
+  <div id="debugLogText">ログ待機中...</div>
+  <button id="debugCopyBtn">ログ全部をコピー</button>
+</div>
+
+<!-- 結果画面 -->
+<div id="resultScreen" class="screen hidden">
+  <h1>🏁 タイムアップ！</h1>
+  <p id="resultSummary" style="font-size:14px;"></p>
+  <div id="resultList"></div>
+  <button id="resultBackBtn" class="bigBtn">タイトルへ戻る</button>
+</div>
+
+<!-- 図鑑一覧 -->
+<div id="galleryListScreen" class="screen hidden">
+  <h1 style="font-size:18px;">📖 金魚図鑑</h1>
+  <div id="galleryGrid"></div>
+</div>
+
+<!-- 鑑賞ビュー -->
+<div id="galleryViewScreen" class="screen hidden">
+  <div id="viewCanvasWrap"><canvas id="viewCanvas"></canvas></div>
+  <div id="galleryViewInfo">
+    <h2 id="viewFishName">-</h2>
+    <p id="viewFishDesc">-</p>
+    <button id="summonArBtn" class="bigBtn">ARで部屋に召喚する</button>
   </div>
 </div>
 
-<!-- ===== 図鑑画面 ===== -->
-<div id="zukanScreen" class="screen hidden">
-  <h1 style="font-size:18px;">金魚図鑑</h1>
-  <div id="zukanGrid"></div>
-  <button class="subBtn" id="closeZukanBtn">閉じる</button>
-</div>
-
-<!-- ===== ショップ画面 ===== -->
-<div id="shopScreen" class="screen hidden">
-  <h1 style="font-size:18px;">ポイ強化(次の1回のみ有効)</h1>
-  <div id="coinDisplayShop" style="font-size:13px; opacity:0.85;">所持コイン: 🪙 <span id="coinCountShop">0</span></div>
-  <div id="shopList" style="display:flex; flex-direction:column; gap:8px; width:100%; align-items:center;"></div>
-  <button class="subBtn" id="closeShopBtn">閉じる</button>
-</div>
-
-<!-- ===== AR中UI ===== -->
-<div id="hintText">まわりを見渡してください...</div>
-<div id="hud">
-  <button id="backBtn" class="hidden">✕ やめる</button>
-  <div id="coinHud">🪙 <span id="coinCountHud">0</span></div>
-</div>
-<div id="catchEffectText"></div>
-<div id="durabilityBarWrap"><div id="durabilityBar"></div></div>
-
-<div id="errorScreen"></div>
-
-<!-- ===== デバッグログ(折りたたみ) ===== -->
-<button id="logToggleBtn">ログ表示</button>
-<div id="logPanel"></div>
+<button id="backToTitleFromGallery" class="backBtn hidden">← タイトル</button>
+<button id="backToGalleryFromView" class="backBtn hidden">← 図鑑</button>
 
 <script>
-/* =========================================================
-   0. デバッグログパネル
-   ========================================================= */
-const logPanel = document.getElementById('logPanel')
-const logToggleBtn = document.getElementById('logToggleBtn')
-const logLines = []
-let logVisible = false
-logToggleBtn.addEventListener('click', () => {
-  logVisible = !logVisible
-  logPanel.style.display = logVisible ? 'block' : 'none'
-  logToggleBtn.textContent = logVisible ? 'ログ非表示' : 'ログ表示'
-})
-const addLog = (level, args) => {
-  const time = new Date().toLocaleTimeString('ja-JP', { hour12: false })
-  const msg = Array.from(args).map(a => {
-    try { return typeof a === 'object' ? JSON.stringify(a) : String(a) }
-    catch (e) { return String(a) }
-  }).join(' ')
-  const line = `[${time}] [${level}] ${msg}`
-  logLines.push(line)
-  const div = document.createElement('div')
-  div.textContent = line
-  if (level === 'ERROR') div.style.color = '#f55'
-  logPanel.appendChild(div)
-  logPanel.scrollTop = logPanel.scrollHeight
-}
-const _origLog = console.log, _origErr = console.error, _origWarn = console.warn
-console.log = (...a) => { _origLog(...a); addLog('LOG', a) }
-console.error = (...a) => { _origErr(...a); addLog('ERROR', a) }
-console.warn = (...a) => { _origWarn(...a); addLog('WARN', a) }
-window.addEventListener('error', (e) => addLog('ERROR', [`${e.message} @ ${e.filename}:${e.lineno}`]))
-window.addEventListener('unhandledrejection', (e) => addLog('ERROR', [`Promise rejection: ${e.reason}`]))
-console.log('スクリプト評価開始')
-console.log(`UA: ${navigator.userAgent}`)
+window.addEventListener('error', (e) => {
+  log('JSエラー: ' + e.message + ' @' + (e.filename || '?') + ':' + (e.lineno || '?'));
+});
+window.addEventListener('unhandledrejection', (e) => {
+  log('Promiseエラー: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+});
 
 /* =========================================================
-   1. 金魚の種類・レアリティ定義(図鑑)
-   ========================================================= */
-const FISH_SPECIES = [
-  { id: 'wakin',    name: '和金',       rarity: 1, color: 0xff5533, coin: 10, escapeSpeed: 1.0 },
-  { id: 'demekin',  name: '出目金',     rarity: 2, color: 0x222222, coin: 20, escapeSpeed: 1.2 },
-  { id: 'ranchu',   name: 'らんちゅう', rarity: 2, color: 0xffaa77, coin: 20, escapeSpeed: 1.2 },
-  { id: 'ryukin',   name: '琉金',       rarity: 1, color: 0xff8899, coin: 10, escapeSpeed: 1.0 },
-  { id: 'shiro',    name: '白変わり',   rarity: 3, color: 0xffffff, coin: 40, escapeSpeed: 1.5 },
-  { id: 'ayakashi', name: 'あやかし金魚', rarity: 4, color: 0x66ffee, coin: 100, escapeSpeed: 2.0, glow: true },
-]
-const RARITY_COLOR = { 1: '#9aa', 2: '#4ac0ff', 3: '#c77dff', 4: '#ffd23f' }
+   データ定義
+========================================================= */
+const FISH_TYPES = [
+  { id: 'wakin',    name: '和金',       rarity: 'common',   color: 0xff6b4a, wildness: 1.0, value: 10, desc: '一番よく見かける元気な金魚。' },
+  { id: 'demekin',  name: '出目金',     rarity: 'common',   color: 0x2b2b2b, wildness: 1.05, value: 10, desc: '目玉が大きくてちょっと不思議な顔。' },
+  { id: 'ryukin',   name: '琉金',       rarity: 'uncommon', color: 0xff9ecb, wildness: 1.25, value: 20, desc: '丸い体でひらひら優雅に泳ぐ。' },
+  { id: 'ranchu',   name: 'らんちゅう', rarity: 'uncommon', color: 0xffcf4a, wildness: 1.3,  value: 20, desc: '背びれがなく、貫禄のある泳ぎ方。' },
+  { id: 'ayakashi', name: 'あやかし金魚', rarity: 'rare',    color: 0x66ffe0, wildness: 1.7,  value: 50, desc: '祭りの夜にだけ現れるという幻の金魚。', emissive: true },
+];
+const RARITY_WEIGHT = { common: 60, uncommon: 30, rare: 10 };
 
-/* =========================================================
-   2. セーブデータ(localStorage)
-   ========================================================= */
-const SAVE_KEY = 'kingyo_ar_save_v1'
-const loadSave = () => {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY)
-    if (raw) return JSON.parse(raw)
-  } catch (e) { console.error('セーブデータ読み込み失敗: ' + e.message) }
-  return { coin: 0, zukan: {} } // zukan: { fishId: catchCount }
-}
-const state = loadSave()
-const persist = () => {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)) }
-  catch (e) { console.error('セーブ失敗: ' + e.message) }
-}
-
-/* =========================================================
-   3. 強化アイテム(消費型・次の1トライのみ有効)
-   ========================================================= */
-const SHOP_ITEMS = [
-  { id: 'range',   name: '判定範囲UP',     cost: 15, desc: '第1段階の接触判定が広がる' },
-  { id: 'durable', name: '耐久UP',         cost: 15, desc: '第2段階の破れゲージが長持ち' },
-  { id: 'stable',  name: '安定化',         cost: 20, desc: 'ジャイロ操作の許容範囲が広がる' },
-  { id: 'rare',    name: 'レア引き寄せ',   cost: 25, desc: 'レア金魚の出現率が上がる' },
-]
-let activeBuff = null // { id, ... } 1回使ったらnullに戻す
-
-/* =========================================================
-   4. 画面切り替え
-   ========================================================= */
-const screens = {
-  title: document.getElementById('titleScreen'),
-  zukan: document.getElementById('zukanScreen'),
-  shop: document.getElementById('shopScreen'),
-}
-const showScreen = (name) => {
-  Object.values(screens).forEach(s => s.classList.add('hidden'))
-  if (name) screens[name].classList.remove('hidden')
-}
-const updateCoinDisplays = () => {
-  document.getElementById('coinCountTitle').textContent = state.coin
-  document.getElementById('coinCountShop').textContent = state.coin
-  document.getElementById('coinCountHud').textContent = state.coin
-}
-updateCoinDisplays()
-
-/* ---- 図鑑描画 ---- */
-const renderZukan = () => {
-  const grid = document.getElementById('zukanGrid')
-  grid.innerHTML = ''
-  FISH_SPECIES.forEach(fish => {
-    const count = state.zukan[fish.id] || 0
-    const cell = document.createElement('div')
-    cell.className = 'zukanCell' + (count === 0 ? ' locked' : '')
-    cell.innerHTML = count > 0
-      ? `🐟<div class="rarityDot" style="background:${RARITY_COLOR[fish.rarity]}"></div>`
-      : '？'
-    cell.title = count > 0 ? `${fish.name} x${count}` : '未捕獲'
-    grid.appendChild(cell)
-  })
-}
-
-/* ---- ショップ描画 ---- */
-const renderShop = () => {
-  const list = document.getElementById('shopList')
-  list.innerHTML = ''
-  SHOP_ITEMS.forEach(item => {
-    const row = document.createElement('div')
-    row.className = 'shopItem'
-    row.innerHTML = `
-      <div>
-        <div style="font-weight:bold;">${item.name}(🪙${item.cost})</div>
-        <div style="font-size:11px; opacity:0.75;">${item.desc}</div>
-      </div>
-      <button ${state.coin < item.cost ? 'disabled' : ''}>使う</button>
-    `
-    row.querySelector('button').addEventListener('click', () => {
-      if (state.coin < item.cost) return
-      state.coin -= item.cost
-      activeBuff = { id: item.id }
-      persist()
-      updateCoinDisplays()
-      renderShop()
-      console.log(`強化アイテム使用: ${item.name}(次のトライのみ有効)`)
-    })
-    list.appendChild(row)
-  })
-}
-
-document.getElementById('openZukanBtn').addEventListener('click', () => { renderZukan(); showScreen('zukan') })
-document.getElementById('closeZukanBtn').addEventListener('click', () => showScreen('title'))
-document.getElementById('openShopBtn').addEventListener('click', () => { renderShop(); showScreen('shop') })
-document.getElementById('closeShopBtn').addEventListener('click', () => showScreen('title'))
-
-/* =========================================================
-   5. AR起動
-   ========================================================= */
-const hintEl = document.getElementById('hintText')
-const errorEl = document.getElementById('errorScreen')
-const showError = (msg) => { errorEl.style.display = 'flex'; errorEl.textContent = msg }
-
-if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-  showError('HTTPSでアクセスしてください(カメラ利用にはHTTPSが必須やで)')
-}
-
-let arStarted = false
-let groundReady = false
-
-document.getElementById('startBtn').addEventListener('click', () => {
-  showScreen(null)
-  document.getElementById('backBtn').classList.remove('hidden')
-  if (!arStarted) {
-    arStarted = true
-    startAR()
+function pickRandomFishType() {
+  const total = FISH_TYPES.reduce((s, f) => s + RARITY_WEIGHT[f.rarity], 0);
+  let r = Math.random() * total;
+  for (const f of FISH_TYPES) {
+    r -= RARITY_WEIGHT[f.rarity];
+    if (r <= 0) return f;
   }
-})
-document.getElementById('backBtn').addEventListener('click', () => {
-  showScreen('title')
-  document.getElementById('backBtn').classList.add('hidden')
-  hintEl.textContent = ''
-})
+  return FISH_TYPES[0];
+}
 
 /* =========================================================
-   6. Three.js / XR8 ゲームロジック
-   ========================================================= */
-let poiGroup, scene, camera
-let fishes = [] // { mesh, species, state: 'swim'|'caught'|'escaping', ... }
-const CATCH_RADIUS_BASE = 0.22
-const HOLD_TIME_TO_SUCCESS = 1.6 // 秒: ポイ中央付近をこれだけキープで成功
-const EDGE_RADIUS = 0.16 // ポイ上でのローカル半径。ここを超えたら逃げられる
+   ローカル保存（コイン・図鑑）
+========================================================= */
+const STORAGE_COINS = 'kingyo_coins_v1';
+const STORAGE_COLLECTION = 'kingyo_collection_v1';
 
-const catchEffectText = document.getElementById('catchEffectText')
-const showFloatText = (text, color) => {
-  catchEffectText.textContent = text
-  catchEffectText.style.color = color || '#fff'
-  catchEffectText.style.opacity = '1'
-  catchEffectText.style.transform = 'translate(-50%, -60%)'
-  catchEffectText.style.transition = 'opacity 0.5s, transform 0.5s'
+function loadCoins() { return parseInt(localStorage.getItem(STORAGE_COINS) || '0', 10); }
+function saveCoins(v) { localStorage.setItem(STORAGE_COINS, String(v)); }
+function loadCollection() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_COLLECTION) || '{}'); }
+  catch (e) { return {}; }
+}
+function saveCollection(obj) { localStorage.setItem(STORAGE_COLLECTION, JSON.stringify(obj)); }
+
+let coins = loadCoins();
+let collection = loadCollection();
+
+function addCoins(v) {
+  coins += v;
+  saveCoins(coins);
+  refreshCoinDisplays();
+}
+function spendCoins(v) {
+  if (coins < v) return false;
+  coins -= v;
+  saveCoins(coins);
+  refreshCoinDisplays();
+  return true;
+}
+function registerCatch(fishType) {
+  collection[fishType.id] = (collection[fishType.id] || 0) + 1;
+  saveCollection(collection);
+}
+function refreshCoinDisplays() {
+  document.getElementById('coinCountTitle').textContent = coins;
+  document.getElementById('coinCountHud').textContent = coins;
+}
+
+/* =========================================================
+   共通ログ・ステータス
+========================================================= */
+const debugLogText = document.getElementById('debugLogText');
+const logLines = [];
+function log(msg) {
+  const t = new Date().toLocaleTimeString('ja-JP');
+  logLines.push(`[${t}] ${msg}`);
+  debugLogText.textContent = logLines.join('\n');
+  debugLogText.scrollTop = debugLogText.scrollHeight; // 常に最新行が見える位置へ自動スクロール
+  console.log(msg);
+}
+document.getElementById('debugCopyBtn').addEventListener('click', () => {
+  const text = logLines.join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('debugCopyBtn');
+      const original = btn.textContent;
+      btn.textContent = 'コピーしたで！';
+      setTimeout(() => { btn.textContent = original; }, 1200);
+    }).catch(() => {
+      window.prompt('コピーできんかったから、これを手動で選択してコピーしてや', text);
+    });
+  } else {
+    window.prompt('これを手動で選択してコピーしてや', text);
+  }
+});
+
+/* =========================================================
+   画面切り替え
+========================================================= */
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
+  if (id) document.getElementById(id).classList.remove('hidden');
+}
+
+/* =========================================================
+   端末の傾き（ジャイロ）
+========================================================= */
+let latestOrientation = { beta: 0, gamma: 0 };
+let orientationReady = false;
+
+function handleOrientation(e) {
+  latestOrientation = { beta: e.beta || 0, gamma: e.gamma || 0 };
+  orientationReady = true;
+}
+
+function requestOrientationPermission() {
+  return new Promise((resolve) => {
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission().then((state) => {
+        if (state === 'granted') {
+          window.addEventListener('deviceorientation', handleOrientation);
+        }
+        resolve();
+      }).catch(() => resolve());
+    } else if ('DeviceOrientationEvent' in window) {
+      window.addEventListener('deviceorientation', handleOrientation);
+      resolve();
+    } else {
+      resolve();
+    }
+  });
+}
+
+/* =========================================================
+   タイトル画面のボタン
+========================================================= */
+refreshCoinDisplays();
+
+document.getElementById('startSlamBtn').addEventListener('click', async () => {
+  await requestOrientationPermission();
+  showScreen(null);
+  document.getElementById('hud').classList.remove('hidden');
+  document.getElementById('placeHint').textContent = '床やたらいをタップして金魚すくいスポットを置いてね';
+  document.getElementById('placeHint').classList.remove('hidden');
+  document.getElementById('debugPanel').classList.remove('hidden');
+  startArSession('catch', null);
+});
+
+document.getElementById('openGalleryBtn').addEventListener('click', () => {
+  renderGalleryGrid();
+  showScreen('galleryListScreen');
+  document.getElementById('backToTitleFromGallery').classList.remove('hidden');
+});
+
+document.getElementById('backToTitleFromGallery').addEventListener('click', () => {
+  document.getElementById('backToTitleFromGallery').classList.add('hidden');
+  showScreen('titleScreen');
+});
+
+document.getElementById('resultBackBtn').addEventListener('click', () => {
+  // 確実にクリーンな状態からやり直せるよう、常に再読み込みする
+  location.reload();
+});
+
+/* =========================================================
+   スクリプトの動的読み込み(AR.js用)
+========================================================= */
+const loadedScripts = {};
+function loadScript(src) {
+  if (loadedScripts[src]) return loadedScripts[src];
+  loadedScripts[src] = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('script load failed: ' + src));
+    document.head.appendChild(s);
+  });
+  return loadedScripts[src];
+}
+
+/* =========================================================
+   図鑑一覧
+========================================================= */
+function renderGalleryGrid() {
+  const grid = document.getElementById('galleryGrid');
+  grid.innerHTML = '';
+  FISH_TYPES.forEach((f) => {
+    const count = collection[f.id] || 0;
+    const card = document.createElement('div');
+    card.className = 'fishCard' + (count > 0 ? '' : ' locked');
+    const swatch = document.createElement('div');
+    swatch.className = 'fishSwatch';
+    swatch.style.background = count > 0 ? `#${f.color.toString(16).padStart(6, '0')}` : '#555';
+    card.appendChild(swatch);
+    const nameEl = document.createElement('div');
+    nameEl.textContent = count > 0 ? f.name : '？？？';
+    card.appendChild(nameEl);
+    const countEl = document.createElement('div');
+    countEl.style.opacity = '0.7';
+    countEl.textContent = count > 0 ? `${count}匹すくった` : '未捕獲';
+    card.appendChild(countEl);
+    if (count > 0) {
+      card.addEventListener('click', () => openGalleryView(f));
+    }
+    grid.appendChild(card);
+  });
+}
+
+/* =========================================================
+   鑑賞ビュー（AR無し・素のThree.js）
+========================================================= */
+let viewRenderer = null, viewScene = null, viewCamera = null, viewFishGroup = null;
+let viewDragging = false, viewLastX = 0;
+let currentViewFish = null;
+
+function openGalleryView(fishType) {
+  currentViewFish = fishType;
+  document.getElementById('viewFishName').textContent = fishType.name;
+  document.getElementById('viewFishDesc').textContent = fishType.desc;
+  showScreen('galleryViewScreen');
+  document.getElementById('backToTitleFromGallery').classList.add('hidden');
+  document.getElementById('backToGalleryFromView').classList.remove('hidden');
+  initViewRenderer();
+  if (viewFishGroup) viewScene.remove(viewFishGroup);
+  viewFishGroup = createFishMesh(fishType, 0.13);
+  viewScene.add(viewFishGroup);
+}
+
+document.getElementById('backToGalleryFromView').addEventListener('click', () => {
+  document.getElementById('backToGalleryFromView').classList.add('hidden');
+  document.getElementById('backToTitleFromGallery').classList.remove('hidden');
+  showScreen('galleryListScreen');
+});
+
+function initViewRenderer() {
+  const canvas = document.getElementById('viewCanvas');
+  const wrap = document.getElementById('viewCanvasWrap');
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+
+  if (!viewRenderer) {
+    viewRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    viewScene = new THREE.Scene();
+    viewCamera = new THREE.PerspectiveCamera(45, w / h, 0.01, 10);
+    viewCamera.position.set(0, 0.05, 0.5);
+    viewScene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.3));
+    const d = new THREE.DirectionalLight(0xffffff, 0.7);
+    d.position.set(1, 1, 1);
+    viewScene.add(d);
+
+    canvas.addEventListener('pointerdown', (e) => { viewDragging = true; viewLastX = e.clientX; });
+    window.addEventListener('pointerup', () => { viewDragging = false; });
+    window.addEventListener('pointermove', (e) => {
+      if (!viewDragging || !viewFishGroup) return;
+      const dx = e.clientX - viewLastX;
+      viewFishGroup.rotation.y += dx * 0.01;
+      viewLastX = e.clientX;
+    });
+
+    const clock = new THREE.Clock();
+    function animateView() {
+      requestAnimationFrame(animateView);
+      if (document.getElementById('galleryViewScreen').classList.contains('hidden')) return;
+      const dt = clock.getDelta();
+      if (viewFishGroup && !viewDragging) viewFishGroup.rotation.y += dt * 0.4;
+      if (viewFishGroup) viewFishGroup.position.y = Math.sin(clock.elapsedTime * 1.5) * 0.02;
+      viewRenderer.render(viewScene, viewCamera);
+    }
+    animateView();
+  }
+  viewRenderer.setSize(w, h, false);
+  viewCamera.aspect = w / h;
+  viewCamera.updateProjectionMatrix();
+}
+
+document.getElementById('summonArBtn').addEventListener('click', async () => {
+  await requestOrientationPermission();
+  showScreen(null);
+  document.getElementById('placeHint').classList.remove('hidden');
+  document.getElementById('debugPanel').classList.remove('hidden');
+  startArSession('summon', currentViewFish);
+});
+
+/* =========================================================
+   捕獲バナー表示（両エンジン共通）
+========================================================= */
+function showBanner(text) {
+  const el = document.getElementById('catchBanner');
+  el.textContent = text;
+  el.style.opacity = '1';
+  setTimeout(() => { el.style.opacity = '0'; }, 900);
+}
+
+/* =========================================================
+   金魚メッシュ生成
+========================================================= */
+function createFishMesh(fishType, scale) {
+  const group = new THREE.Group();
+  const s = scale || 0.09;
+
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: fishType.color,
+    emissive: fishType.emissive ? fishType.color : 0x000000,
+    emissiveIntensity: fishType.emissive ? 0.5 : 0,
+    roughness: 0.4, metalness: 0.1,
+  });
+
+  const body = new THREE.Mesh(new THREE.SphereGeometry(s, 16, 12), bodyMat);
+  body.scale.set(1.0, 0.7, 1.6);
+  group.add(body);
+
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(s * 0.9, s * 1.3, 8), bodyMat);
+  tail.rotation.z = Math.PI / 2;
+  tail.position.set(0, 0, -s * 1.5);
+  tail.name = 'tail';
+  group.add(tail);
+
+  const eyeGeo = new THREE.SphereGeometry(s * 0.12, 8, 8);
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+  const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+  eyeL.position.set(s * 0.55, s * 0.15, s * 0.9);
+  const eyeR = eyeL.clone();
+  eyeR.position.x *= -1;
+  group.add(eyeL, eyeR);
+
+  group.userData.fishType = fishType;
+  return group;
+}
+
+/* =========================================================
+   ARセッション本体
+========================================================= */
+let engineReady = false;
+let extrasReady = false;
+let arMode = 'catch'; // 'catch' | 'summon'
+let summonFishType = null;
+
+function startArSession(mode, fishType) {
+  arMode = mode;
+  summonFishType = fishType;
+  initEngineCheckAndStart();
+}
+
+function initEngineCheckAndStart() {
+  function tryStart() { if (engineReady && extrasReady) onxrloaded(); }
+
+  if (window.XR8) { engineReady = true; } else {
+    window.addEventListener('xrloaded', () => { engineReady = true; tryStart(); });
+  }
+  if (window.XRExtras) { extrasReady = true; } else {
+    window.addEventListener('xrextrasloaded', () => { extrasReady = true; tryStart(); });
+  }
+  tryStart();
+
   setTimeout(() => {
-    catchEffectText.style.opacity = '0'
-    catchEffectText.style.transform = 'translate(-50%, -80%)'
-  }, 550)
+    if (!engineReady || !extrasReady) log(`10秒経過。XR8:${engineReady} XRExtras:${extrasReady}`);
+  }, 10000);
 }
 
-// ---- ポイ(すくい網)をカメラの子として構築 ----
-const buildPoi = () => {
-  const group = new THREE.Group()
+function onxrloaded() {
+  log('エンジン一式の読み込み確認OK / モード=' + arMode);
 
-  const ringGeo = new THREE.TorusGeometry(0.11, 0.008, 8, 24)
-  const ringMat = new THREE.MeshStandardMaterial({ color: 0xd8b070 })
-  const ring = new THREE.Mesh(ringGeo, ringMat)
-  ring.rotation.x = Math.PI / 2
-  group.add(ring)
+  XR8.addCameraPipelineModules([
+    XR8.GlTextureRenderer.pipelineModule(),
+    XR8.Threejs.pipelineModule(),
+    XR8.XrController.pipelineModule(),
+    XRExtras.FullWindowCanvas.pipelineModule(),
+    XRExtras.Loading.pipelineModule(),
+    XRExtras.RuntimeError.pipelineModule(),
+    goldfishGamePipelineModule(),
+  ]);
 
-  const paperGeo = new THREE.CircleGeometry(0.105, 24)
-  const paperMat = new THREE.MeshStandardMaterial({
-    color: 0xfff6e0, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
-  })
-  const paper = new THREE.Mesh(paperGeo, paperMat)
-  paper.rotation.x = Math.PI / 2.2
-  paper.position.y = -0.005
-  group.add(paper)
+  const canvas = document.createElement('canvas');
+  canvas.id = 'camerafeed';
+  document.body.appendChild(canvas);
 
-  const handleGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.22, 8)
-  const handleMat = new THREE.MeshStandardMaterial({ color: 0x8a5a2b })
-  const handle = new THREE.Mesh(handleGeo, handleMat)
-  handle.position.set(0, -0.13, 0.04)
-  handle.rotation.x = 0.3
-  group.add(handle)
-
-  // ※このオブジェクトはカメラの子にはしない(camera.addだとXR8のカメラ行列に
-  //   スケール成分が混ざっている場合に子要素が歪むことがあるため)。
-  //   代わりに毎フレーム、カメラの位置・向きだけを手動でコピーして追従させる。
-  return group
-}
-
-// カメラのローカル座標(x, y, z)を、カメラの位置・回転(スケール無視)だけを使って
-// ワールド座標に変換する。camera.localToWorld()は使わない(スケール混入対策)。
-const POI_LOCAL_OFFSET = new THREE.Vector3(0, -0.18, -0.45)
-const POI_LOCAL_TILT = -0.15 // ポイの傾き(見やすさのための固定角)
-const syncPoiToCamera = () => {
-  const offset = POI_LOCAL_OFFSET.clone().applyQuaternion(camera.quaternion)
-  poiGroup.position.copy(camera.position).add(offset)
-  poiGroup.quaternion.copy(camera.quaternion)
-  poiGroup.rotateX(POI_LOCAL_TILT)
-}
-
-// ---- 金魚メッシュ生成 ----
-const buildFishMesh = (species) => {
-  const geo = new THREE.SphereGeometry(0.045, 12, 12)
-  geo.scale(1, 0.55, 1.7)
-  const mat = new THREE.MeshStandardMaterial({
-    color: species.color,
-    emissive: species.glow ? species.color : 0x000000,
-    emissiveIntensity: species.glow ? 0.6 : 0,
-  })
-  const mesh = new THREE.Mesh(geo, mat)
-  // 尾びれ
-  const tailGeo = new THREE.ConeGeometry(0.035, 0.05, 8)
-  const tail = new THREE.Mesh(tailGeo, mat)
-  tail.rotation.z = Math.PI / 2
-  tail.position.set(0, 0, 0.075)
-  mesh.add(tail)
-  return mesh
-}
-
-// ---- 抽選(レアリティに応じた重み付け。rareバフで補正) ----
-const pickSpecies = () => {
-  const rareBonus = activeBuff && activeBuff.id === 'rare' ? 2.2 : 1.0
-  const weights = FISH_SPECIES.map(f => (1 / f.rarity) * (f.rarity >= 3 ? rareBonus : 1))
-  const total = weights.reduce((a, b) => a + b, 0)
-  let r = Math.random() * total
-  for (let i = 0; i < FISH_SPECIES.length; i++) {
-    r -= weights[i]
-    if (r <= 0) return FISH_SPECIES[i]
-  }
-  return FISH_SPECIES[0]
-}
-
-// ---- 水場(池)と金魚の初期配置(引数のワールド座標に配置) ----
-const spawnPond = (pondCenter) => {
-  const { scene } = XR8.Threejs.xrScene()
-
-  const pondGeo = new THREE.CircleGeometry(0.9, 32)
-  pondGeo.rotateX(-Math.PI / 2)
-  const pondMat = new THREE.MeshStandardMaterial({ color: 0x1560a0, transparent: true, opacity: 0.35 })
-  const pond = new THREE.Mesh(pondGeo, pondMat)
-  pond.position.copy(pondCenter)
-  scene.add(pond)
-
-  for (let i = 0; i < 5; i++) spawnFish(pondCenter)
-  console.log(`池を生成 (${pondCenter.x.toFixed(2)}, ${pondCenter.y.toFixed(2)}, ${pondCenter.z.toFixed(2)})`)
-}
-
-const spawnFish = (pondCenter) => {
-  const { scene } = XR8.Threejs.xrScene()
-  const species = pickSpecies()
-  const mesh = buildFishMesh(species)
-  const angle = Math.random() * Math.PI * 2
-  const r = Math.random() * 0.65
-  mesh.position.set(
-    pondCenter.x + Math.cos(angle) * r,
-    pondCenter.y + 0.02,
-    pondCenter.z + Math.sin(angle) * r
-  )
-  scene.add(mesh)
-  fishes.push({
-    mesh, species, mode: 'swim',
-    swimAngle: angle, swimR: r, pondCenter,
-    swimSpeed: 0.3 + Math.random() * 0.3,
-    // 第2段階(捕捉後)用パラメータ
-    localOffset: new THREE.Vector2(0, 0),
-    holdTimer: 0,
-  })
-}
-
-/* ---- タイトルへ戻す共通処理(捕獲成功/失敗後) ---- */
-const releaseFishBackToSwim = (fish) => {
-  fish.mode = 'swim'
-  fish.holdTimer = 0
-  fish.mesh.position.set(
-    fish.pondCenter.x + Math.cos(fish.swimAngle) * fish.swimR,
-    fish.pondCenter.y + 0.02,
-    fish.pondCenter.z + Math.sin(fish.swimAngle) * fish.swimR
-  )
+  XR8.run({ canvas, allowedDevices: XR8.XrConfig.device().ANY });
 }
 
 /* =========================================================
-   7. 毎フレーム更新
-   ========================================================= */
-let lastTime = performance.now()
-const updateLoop = () => {
-  const now = performance.now()
-  const dt = Math.min((now - lastTime) / 1000, 0.1)
-  lastTime = now
-  if (!scene) { requestAnimationFrame(updateLoop); return }
+   ゲーム本体パイプライン
+========================================================= */
+function goldfishGamePipelineModule() {
+  let scene, camera;
+  let poiGroup, poiPaper;
+  let anchorGroup = null;       // たらい設置後のアンカー（フリー金魚の親）
+  let placed = false;
+  let freeFish = [];            // {mesh, basePos, phase, speed, radius, invulnerable}
+  let heldFish = null;          // 捕獲中の1匹 {mesh, type, holdTimer, balance:{x,y}, baseline, buffed}
+  const clock = new THREE.Clock();
 
-  syncPoiToCamera()
-  const poiWorldPos = poiGroup.position.clone()
+  const ROUND_SECONDS = 70;
+  let timeLeft = ROUND_SECONDS;
+  let roundActive = false;
+  const caughtThisRound = {};
 
-  fishes.forEach(fish => {
-    if (fish.mode === 'swim') {
-      fish.swimAngle += fish.swimSpeed * dt
-      fish.mesh.position.x = fish.pondCenter.x + Math.cos(fish.swimAngle) * fish.swimR
-      fish.mesh.position.z = fish.pondCenter.z + Math.sin(fish.swimAngle) * fish.swimR
-      fish.mesh.rotation.y = -fish.swimAngle + Math.PI / 2
+  const CATCH_RADIUS = 0.08;     // ポイに触れたと判定する距離
+  const HOLD_RADIUS = 0.025;     // これより中心に近ければキープ扱い
+  const ESCAPE_RADIUS = 0.058;   // これを超えたら逃げられる（紙面の縁あたり）
+  const REQUIRED_HOLD = 1.1;     // 何秒キープしたら成功か
+  const LIFT_DURATION = 2.0;     // 捕捉→水面から引き上げるまでの猶予(秒)
+  const TILT_ACCEL = 0.05;       // 傾きが与える加速度の強さ
+  const WANDER_ACCEL_BASE = 0.3; // 金魚の暴れが与える加速度の強さ
+  const FRICTION_PER_SEC = 3.2;  // 摩擦の強さ(大きいほどすぐ減速する)
+  const MAX_SPEED = 0.22;        // 金魚が出せる最大速度
 
-      // ---- 第1段階: ポイとの接触判定(広め・サクッと) ----
-      const rangeBonus = activeBuff && activeBuff.id === 'range' ? 1.5 : 1.0
-      const dist = fish.mesh.position.distanceTo(poiWorldPos)
-      if (dist < CATCH_RADIUS_BASE * rangeBonus) {
-        fish.mode = 'caught'
-        fish.localOffset.set(0, 0)
-        fish.holdTimer = 0
-        fish.durability = 1.0
-        console.log(`接触: ${fish.species.name} → 第2段階開始`)
-        document.getElementById('durabilityBarWrap').style.display = 'block'
-      }
-    } else if (fish.mode === 'caught') {
-      // ---- 第2段階: ポイのローカル座標系でバランス勝負 ----
-      // デバイスの傾き(カメラのroll相当)を使って、金魚をポイの中心からズラす力を加える
-      const tiltX = camera.rotation.z // 左右の傾き
-      const tiltY = camera.rotation.x // 前後の傾き
-      const escapeSpeed = fish.species.escapeSpeed * 0.35
+  function setupPoi() {
+    poiGroup = new THREE.Group();
 
-      // 金魚は常に外側に逃げようとする(ランダム+傾きに影響される)
-      const wobble = (Math.sin(now / 130 + fish.swimAngle * 10) * 0.5)
-      fish.localOffset.x += (wobble - tiltX * 0.6) * escapeSpeed * dt
-      fish.localOffset.y += (Math.cos(now / 170) * 0.4 - tiltY * 0.6) * escapeSpeed * dt
+    // リング・紙面は回転させず、スマホ画面と平行な板として見えるようにする
+    const ringGeo = new THREE.TorusGeometry(0.07, 0.005, 12, 32);
+    const ringMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.5 });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    poiGroup.add(ring);
 
-      const stableBonus = activeBuff && activeBuff.id === 'stable' ? 0.6 : 1.0
-      fish.localOffset.multiplyScalar(1 - 0.15 * stableBonus) // 減衰(安定化バフで強く減衰)
+    const paperGeo = new THREE.CircleGeometry(0.065, 32);
+    const paperMat = new THREE.MeshStandardMaterial({
+      color: 0xfff6e0, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+    });
+    poiPaper = new THREE.Mesh(paperGeo, paperMat);
+    poiPaper.position.z = -0.004;
+    poiGroup.add(poiPaper);
 
-      const offsetLen = fish.localOffset.length()
+    // 持ち手はリングの下からプレイヤー側(カメラ側)に伸びる形に
+    const handleGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.2, 8);
+    const handleMat = new THREE.MeshStandardMaterial({ color: 0x8a5a2b });
+    const handle = new THREE.Mesh(handleGeo, handleMat);
+    handle.rotation.x = Math.PI / 2;
+    handle.position.set(0, -0.075, 0.11);
+    poiGroup.add(handle);
 
-      // ポイに追従する位置(ローカルオフセットをワールドに変換)
-      const localPos = new THREE.Vector3(fish.localOffset.x, 0.02, fish.localOffset.y)
-      const worldPos = poiGroup.localToWorld(localPos)
-      fish.mesh.position.copy(worldPos)
+    // スマホの少し上・少し先、画面とほぼ平行に固定
+    poiGroup.position.set(0, 0.06, -0.3);
+    camera.add(poiGroup);
+  }
 
-      // 耐久ゲージ消費(縁に近いほど減る)
-      const durableBonus = activeBuff && activeBuff.id === 'durable' ? 1.6 : 1.0
-      fish.durability -= (offsetLen / EDGE_RADIUS) * dt * 0.35 / durableBonus
-      document.getElementById('durabilityBar').style.width = `${Math.max(0, fish.durability) * 100}%`
+  function placeAnchor(position) {
+    anchorGroup = new THREE.Group();
+    anchorGroup.position.copy(position);
+    scene.add(anchorGroup);
 
-      if (offsetLen > EDGE_RADIUS || fish.durability <= 0) {
-        // ---- 失敗: 爆速リターン ----
-        console.log(`逃げられた: ${fish.species.name}`)
-        showFloatText('おしい!', '#ffd23f')
-        document.getElementById('durabilityBarWrap').style.display = 'none'
-        activeBuff = null // 消費型バフはここで消える
-        releaseFishBackToSwim(fish)
-      } else {
-        fish.holdTimer += dt
-        if (fish.holdTimer > HOLD_TIME_TO_SUCCESS) {
-          // ---- 成功 ----
-          console.log(`捕獲成功: ${fish.species.name}`)
-          showFloatText(`${fish.species.name} 捕獲!`, RARITY_COLOR[fish.species.rarity])
-          document.getElementById('durabilityBarWrap').style.display = 'none'
-          state.coin += fish.species.coin
-          state.zukan[fish.species.id] = (state.zukan[fish.species.id] || 0) + 1
-          persist()
-          updateCoinDisplays()
-          activeBuff = null
-          releaseFishBackToSwim(fish)
+    // 水面(たらい)の見た目
+    const waterGeo = new THREE.CircleGeometry(0.28, 40);
+    const waterMat = new THREE.MeshStandardMaterial({
+      color: 0x4fb0d6, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
+    });
+    const water = new THREE.Mesh(waterGeo, waterMat);
+    water.rotation.x = -Math.PI / 2;
+    anchorGroup.add(water);
+
+    const rimGeo = new THREE.TorusGeometry(0.28, 0.012, 10, 40);
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
+    const rim = new THREE.Mesh(rimGeo, rimMat);
+    rim.rotation.x = Math.PI / 2;
+    anchorGroup.add(rim);
+
+    placed = true;
+    document.getElementById('placeHint').classList.add('hidden');
+
+    if (arMode === 'catch') {
+      for (let i = 0; i < 5; i++) spawnFreeFish();
+      roundActive = true;
+      timeLeft = ROUND_SECONDS;
+      log('たらい設置完了。ラウンド開始');
+    } else if (arMode === 'summon') {
+      spawnSummonFish();
+      log('たらい設置完了。召喚モード表示中');
+    }
+  }
+
+  function spawnFreeFish() {
+    const type = pickRandomFishType();
+    const mesh = createFishMesh(type, 0.014 + Math.random() * 0.006);
+    anchorGroup.add(mesh);
+    freeFish.push({
+      mesh, type,
+      basePos: new THREE.Vector3((Math.random() - 0.5) * 0.35, 0.01, (Math.random() - 0.5) * 0.35),
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.6 + Math.random() * 0.4,
+      radius: 0.05 + Math.random() * 0.05,
+      invulnerable: 0,
+    });
+  }
+
+  function spawnSummonFish() {
+    const mesh = createFishMesh(summonFishType, 0.08);
+    anchorGroup.add(mesh);
+    freeFish.push({
+      mesh, type: summonFishType,
+      basePos: new THREE.Vector3(0, 0.03, 0),
+      phase: 0, speed: 0.5, radius: 0.12, invulnerable: 999999,
+    });
+  }
+
+  function tryGrab(fishEntry) {
+    // stage1 -> stage2 遷移。ポイのローカル座標系へ持ち替える
+    const worldPos = new THREE.Vector3();
+    fishEntry.mesh.getWorldPosition(worldPos);
+    anchorGroup.remove(fishEntry.mesh);
+    poiGroup.add(fishEntry.mesh);
+    fishEntry.mesh.position.set(0, -0.05, -0.004);
+
+    let buffed = false;
+    const autoBuff = document.getElementById('autoBuffCheckbox').checked;
+    if (autoBuff && spendCoins(10)) {
+      buffed = true;
+      refreshCoinDisplays();
+    }
+
+    heldFish = {
+      mesh: fishEntry.mesh,
+      type: fishEntry.type,
+      state: 'lifting',       // 'lifting' -> 'balancing'
+      liftTimer: 0,
+      holdTimer: 0,
+      balance: { x: 0, y: 0 },
+      velocity: { x: 0, y: 0 },
+      baseline: { beta: latestOrientation.beta, gamma: latestOrientation.gamma },
+      wander: { x: 0, y: 0 },
+      wanderTimer: 0,
+      buffed,
+    };
+    freeFish = freeFish.filter(f => f !== fishEntry);
+    document.getElementById('liftBanner').classList.remove('hidden');
+  }
+
+  function catchSuccess() {
+    document.getElementById('liftBanner').classList.add('hidden');
+    const type = heldFish.type;
+    const value = Math.round(type.value * (heldFish.buffed ? 1.5 : 1));
+    addCoins(value);
+    registerCatch(type);
+    caughtThisRound[type.id] = (caughtThisRound[type.id] || 0) + 1;
+    showBanner(`GET! ${type.name} (+${value}🪙)`);
+    poiGroup.remove(heldFish.mesh);
+    heldFish = null;
+    if (roundActive) setTimeout(spawnFreeFish, 500);
+  }
+
+  function catchFail() {
+    document.getElementById('liftBanner').classList.add('hidden');
+    const mesh = heldFish.mesh;
+    showBanner('にげられた！');
+    poiGroup.remove(mesh);
+    anchorGroup.add(mesh);
+    mesh.scale.setScalar(0.001);
+    const targetScale = mesh.userData.baseScale || 1;
+    let t = 0;
+    const grow = () => {
+      t += 0.05;
+      mesh.scale.setScalar(Math.min(1, t) * targetScale);
+      if (t < 1) requestAnimationFrame(grow);
+    };
+    const entry = {
+      mesh, type: heldFish.type,
+      basePos: new THREE.Vector3((Math.random() - 0.5) * 0.35, 0.01, (Math.random() - 0.5) * 0.35),
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.6 + Math.random() * 0.4,
+      radius: 0.05 + Math.random() * 0.05,
+      invulnerable: 0.6,
+    };
+    mesh.position.copy(entry.basePos);
+    freeFish.push(entry);
+    grow();
+    heldFish = null;
+  }
+
+  function endRound() {
+    roundActive = false;
+    document.getElementById('hud').classList.add('hidden');
+    const total = Object.values(caughtThisRound).reduce((a, b) => a + b, 0);
+    document.getElementById('resultSummary').textContent = `合計 ${total}匹すくったで！`;
+    const listEl = document.getElementById('resultList');
+    listEl.innerHTML = '';
+    Object.keys(caughtThisRound).forEach((id) => {
+      const type = FISH_TYPES.find(f => f.id === id);
+      const row = document.createElement('div');
+      row.className = 'resultRow';
+      row.innerHTML = `<span>${type.name}</span><span>${caughtThisRound[id]}匹</span>`;
+      listEl.appendChild(row);
+    });
+    showScreen('resultScreen');
+  }
+
+  const onTap = (e) => {
+    if (placed) return;
+    const touch = e.touches ? e.touches[0] : e;
+    const x = touch.clientX / window.innerWidth;
+    const y = touch.clientY / window.innerHeight;
+    const results = XR8.XrController.hitTest(x, y, ['FEATURE_POINT']);
+    if (results && results.length > 0) {
+      const p = results[0].position;
+      placeAnchor(new THREE.Vector3(p.x, p.y, p.z));
+    }
+  };
+
+  return {
+    name: 'goldfishgame',
+    onStart: () => {
+      const xrScene = XR8.Threejs.xrScene();
+      scene = xrScene.scene;
+      camera = xrScene.camera;
+
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+      const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+      dir.position.set(0.5, 1, 0.3);
+      scene.add(dir);
+
+      setupPoi();
+
+      XR8.XrController.updateCameraProjectionMatrix({
+        origin: camera.position, facing: camera.quaternion,
+      });
+
+      window.addEventListener('touchstart', onTap);
+      log('ゲームシーン初期化完了。タップで設置待ち');
+    },
+    onUpdate: () => {
+      if (!placed) return;
+      const dt = Math.min(clock.getDelta(), 0.1);
+      const t = clock.elapsedTime;
+
+      // フリー金魚の遊泳アニメーション
+      freeFish.forEach((f) => {
+        f.invulnerable = Math.max(0, f.invulnerable - dt);
+        const angle = t * f.speed + f.phase;
+        f.mesh.position.set(
+          f.basePos.x + Math.cos(angle) * f.radius,
+          f.basePos.y + Math.sin(t * 3 + f.phase) * 0.004,
+          f.basePos.z + Math.sin(angle) * f.radius
+        );
+        f.mesh.rotation.y = -angle + Math.PI / 2;
+        const tailMesh = f.mesh.getObjectByName('tail');
+        if (tailMesh) tailMesh.rotation.y = Math.sin(t * 8 + f.phase) * 0.5;
+      });
+
+      // stage1: ポイとの接触判定（捕獲モードのみ / 無敵時間中は除外）
+      if (arMode === 'catch' && roundActive && !heldFish) {
+        const poiWorld = new THREE.Vector3();
+        poiGroup.getWorldPosition(poiWorld);
+        for (const f of freeFish) {
+          if (f.invulnerable > 0) continue;
+          const fishWorld = new THREE.Vector3();
+          f.mesh.getWorldPosition(fishWorld);
+          if (fishWorld.distanceTo(poiWorld) < CATCH_RADIUS) {
+            tryGrab(f);
+            break;
+          }
         }
       }
-    }
-  })
 
-  requestAnimationFrame(updateLoop)
+      // stage2: 引き上げ猶予 → ポイの上でのバランス勝負
+      if (heldFish) {
+        if (heldFish.state === 'lifting') {
+          heldFish.liftTimer += dt;
+          const p = Math.min(1, heldFish.liftTimer / LIFT_DURATION);
+          const eased = 1 - Math.pow(1 - p, 2); // ease-out
+          const y = -0.05 + 0.05 * eased;
+          heldFish.mesh.position.set(0, y, -0.004);
+          if (p >= 1) {
+            heldFish.state = 'balancing';
+            document.getElementById('liftBanner').classList.add('hidden');
+            // 引き上げ完了時点をあらためて基準の傾きにする(不意打ちで即失敗しないように)
+            heldFish.baseline = { beta: latestOrientation.beta, gamma: latestOrientation.gamma };
+          }
+        } else if (heldFish.state === 'balancing') {
+          heldFish.wanderTimer -= dt;
+          if (heldFish.wanderTimer <= 0) {
+            heldFish.wanderTimer = 0.4 + Math.random() * 0.35;
+            const wildness = heldFish.type.wildness;
+            heldFish.wander.x = (Math.random() - 0.5) * WANDER_ACCEL_BASE * wildness;
+            heldFish.wander.y = (Math.random() - 0.5) * WANDER_ACCEL_BASE * wildness;
+          }
+          const delta = {
+            beta: latestOrientation.beta - heldFish.baseline.beta,
+            gamma: latestOrientation.gamma - heldFish.baseline.gamma,
+          };
+
+          // 傾き入力と金魚の暴れを「加速度」として速度に加える
+          const accelX = heldFish.wander.x + delta.gamma * TILT_ACCEL;
+          const accelY = heldFish.wander.y - delta.beta * TILT_ACCEL;
+          heldFish.velocity.x += accelX * dt;
+          heldFish.velocity.y += accelY * dt;
+
+          // 摩擦(指数減衰)で速度を減らす。これが「重さ」「粘り」を生む
+          const damping = Math.exp(-FRICTION_PER_SEC * dt);
+          heldFish.velocity.x *= damping;
+          heldFish.velocity.y *= damping;
+
+          // 最大速度でクランプ(無限に加速しないように)
+          const speed = Math.hypot(heldFish.velocity.x, heldFish.velocity.y);
+          if (speed > MAX_SPEED) {
+            heldFish.velocity.x *= MAX_SPEED / speed;
+            heldFish.velocity.y *= MAX_SPEED / speed;
+          }
+
+          heldFish.balance.x += heldFish.velocity.x * dt;
+          heldFish.balance.y += heldFish.velocity.y * dt;
+
+          const holdR = HOLD_RADIUS * (heldFish.buffed ? 1.4 : 1);
+          const escR = ESCAPE_RADIUS * (heldFish.buffed ? 1.25 : 1);
+          const reqHold = REQUIRED_HOLD * (heldFish.buffed ? 0.8 : 1);
+
+          const mag = Math.hypot(heldFish.balance.x, heldFish.balance.y);
+          if (mag > escR * 1.4) {
+            const scale = (escR * 1.4) / mag;
+            heldFish.balance.x *= scale;
+            heldFish.balance.y *= scale;
+          }
+          heldFish.mesh.position.set(heldFish.balance.x, heldFish.balance.y, -0.004);
+
+          if (mag < holdR) {
+            heldFish.holdTimer += dt;
+          } else {
+            heldFish.holdTimer = Math.max(0, heldFish.holdTimer - dt * 0.6);
+          }
+
+          if (heldFish.holdTimer >= reqHold) {
+            catchSuccess();
+          } else if (mag > escR) {
+            catchFail();
+          }
+        }
+      }
+
+      // タイマー
+      if (arMode === 'catch' && roundActive) {
+        timeLeft -= dt;
+        document.getElementById('timerDisplay').textContent = Math.max(0, Math.ceil(timeLeft));
+        if (timeLeft <= 0) endRound();
+      }
+    },
+  };
 }
 
-/* =========================================================
-   8. XR8初期化
-   ========================================================= */
-const initScene = () => {
-  console.log('onStart: Three.jsシーン初期化開始')
-  const xrScene = XR8.Threejs.xrScene()
-  scene = xrScene.scene
-  camera = xrScene.camera
-
-  const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0)
-  scene.add(light)
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6)
-  dirLight.position.set(1, 3, 1)
-  scene.add(dirLight)
-
-  poiGroup = buildPoi()
-  scene.add(poiGroup) // カメラの子にはせず、シーン直下に置いて毎フレーム手動追従させる
-
-  // 地面選択フェーズ用: 池の位置を確定するタップ
-  window.addEventListener('touchstart', (e) => {
-    if (pondPlaced) return
-    const t = e.touches[0]
-    handlePlacementTap(t.clientX, t.clientY)
-  })
-  window.addEventListener('click', (e) => {
-    if (pondPlaced) return
-    handlePlacementTap(e.clientX, e.clientY)
-  })
-
-  console.log('onStart: シーン初期化完了(ポイは毎フレーム手動追従)')
-  requestAnimationFrame(updateLoop)
-}
-
-const onTrackingStatus = (event) => {
-  const { status } = event.detail
-  console.log('trackingStatus:', status)
-  if (status === 'NORMAL' && !groundReady) {
-    groundReady = true
-    hintEl.textContent = '池を置きたい場所をタップしてください'
-    console.log('トラッキング安定 → タップ待ち(地面選択フェーズ)')
-  }
-}
-
-// タップした画面座標を実世界座標に変換して池を確定配置する
-let pondPlaced = false
-const handlePlacementTap = (clientX, clientY) => {
-  if (!groundReady || pondPlaced) return
-  const x = clientX / window.innerWidth
-  const y = clientY / window.innerHeight
-  const results = XR8.XrController.hitTest(x, y, ['FEATURE_POINT'])
-  console.log(`hitTest実行: x=${x.toFixed(2)} y=${y.toFixed(2)} → 結果${results ? results.length : 0}件`)
-  if (!results || results.length === 0) {
-    console.log('この位置には平面/特徴点が見つかりませんでした。別の場所をタップしてください')
-    return
-  }
-  const pos = results[0].position
-  const pondCenter = new THREE.Vector3(pos.x, pos.y, pos.z)
-  pondPlaced = true
-  hintEl.textContent = ''
-  spawnPond(pondCenter)
-}
-
-const startAR = () => {
-  const onxrloaded = () => {
-    console.log('xrloadedイベント発火。XR8初期化を開始します')
-    XR8.XrController.configure({ disableWorldTracking: false })
-
-    XR8.addCameraPipelineModules([
-      XR8.GlTextureRenderer.pipelineModule(),
-      XR8.Threejs.pipelineModule(),
-      XR8.XrController.pipelineModule(),
-      XRExtras.AlmostThere.pipelineModule(),
-      XRExtras.FullWindowCanvas.pipelineModule(),
-      XRExtras.Loading.pipelineModule(),
-      XRExtras.RuntimeError.pipelineModule(),
-      {
-        name: 'kingyo-app',
-        onStart: initScene,
-        listeners: [{ event: 'reality.trackingstatus', process: onTrackingStatus }],
-      },
-    ])
-    console.log('パイプラインモジュール追加完了')
-    XR8.run({ canvas: document.getElementById('camerafeed') })
-    console.log('XR8.run() 呼び出し完了。カメラ起動待ち')
-  }
-
-  if (window.XR8) onxrloaded()
-  else window.addEventListener('xrloaded', onxrloaded)
-
-  setTimeout(() => {
-    if (!window.XR8) console.error('8秒経ってもXR8が読み込まれていません。xr.js(CDN)の読み込み失敗、またはネットワーク接続を確認してください')
-  }, 8000)
-}
 </script>
+
 </body>
 </html>
