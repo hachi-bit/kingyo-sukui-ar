@@ -620,19 +620,17 @@ function goldfishGamePipelineModule() {
     if (quaternion) anchorGroup.quaternion.copy(quaternion);
     scene.add(anchorGroup);
 
-    // 水面(たらい)の見た目
+    // 水面(たらい)の見た目。マーカーの面と平行になるよう、回転は加えない
     const waterGeo = new THREE.CircleGeometry(0.28, 40);
     const waterMat = new THREE.MeshStandardMaterial({
       color: 0x4fb0d6, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
     });
     const water = new THREE.Mesh(waterGeo, waterMat);
-    water.rotation.x = -Math.PI / 2;
     anchorGroup.add(water);
 
     const rimGeo = new THREE.TorusGeometry(0.28, 0.012, 10, 40);
     const rimMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
     const rim = new THREE.Mesh(rimGeo, rimMat);
-    rim.rotation.x = Math.PI / 2;
     anchorGroup.add(rim);
 
     placed = true;
@@ -649,13 +647,24 @@ function goldfishGamePipelineModule() {
     }
   }
 
+  let rotationShapeLogged = false;
   function updateAnchorFromDetail(detail) {
     if (!anchorGroup || !detail) return;
     if (detail.position) anchorGroup.position.set(detail.position.x, detail.position.y, detail.position.z);
     if (detail.rotation) {
       const r = detail.rotation;
+      if (!rotationShapeLogged) {
+        rotationShapeLogged = true;
+        log('rotation構造: ' + JSON.stringify(r));
+      }
       if (typeof r.w === 'number') {
         anchorGroup.quaternion.set(r.x, r.y, r.z, r.w);
+      } else if (typeof r.x === 'number' && typeof r.y === 'number' && typeof r.z === 'number') {
+        // クォータニオンでなければオイラー角(ラジアン)として解釈してみる
+        anchorGroup.rotation.set(r.x, r.y, r.z);
+        log('rotationにwが無いのでオイラー角として適用した');
+      } else {
+        log('rotationの形式が想定外。回転は更新されず');
       }
     }
   }
@@ -666,7 +675,7 @@ function goldfishGamePipelineModule() {
     anchorGroup.add(mesh);
     freeFish.push({
       mesh, type,
-      basePos: new THREE.Vector3((Math.random() - 0.5) * 0.35, 0.01, (Math.random() - 0.5) * 0.35),
+      basePos: new THREE.Vector3((Math.random() - 0.5) * 0.35, (Math.random() - 0.5) * 0.35, 0.01),
       phase: Math.random() * Math.PI * 2,
       speed: 0.6 + Math.random() * 0.4,
       radius: 0.05 + Math.random() * 0.05,
@@ -679,7 +688,7 @@ function goldfishGamePipelineModule() {
     anchorGroup.add(mesh);
     freeFish.push({
       mesh, type: summonFishType,
-      basePos: new THREE.Vector3(0, 0.03, 0),
+      basePos: new THREE.Vector3(0, 0, 0.03),
       phase: 0, speed: 0.5, radius: 0.12, invulnerable: 999999,
     });
   }
@@ -745,11 +754,7 @@ function goldfishGamePipelineModule() {
     };
     const entry = {
       mesh, type: heldFish.type,
-      basePos: new THREE.Vector3((Math.random() - 0.5) * 0.35, 0.01, (Math.random() - 0.5) * 0.35),
-      phase: Math.random() * Math.PI * 2,
-      speed: 0.6 + Math.random() * 0.4,
-      radius: 0.05 + Math.random() * 0.05,
-      invulnerable: 0.6,
+      basePos: new THREE.Vector3((Math.random() - 0.5) * 0.35, (Math.random() - 0.5) * 0.35, 0.01),
     };
     mesh.position.copy(entry.basePos);
     freeFish.push(entry);
@@ -776,6 +781,7 @@ function goldfishGamePipelineModule() {
 
   const onImageFound = ({ detail }) => {
     log('マーカー発見(imagefound): ' + detail.name);
+    log('detail全体: ' + JSON.stringify(detail));
     if (!placed) {
       const q = new THREE.Quaternion();
       if (detail.rotation && typeof detail.rotation.w === 'number') {
@@ -824,16 +830,16 @@ function goldfishGamePipelineModule() {
       const dt = Math.min(clock.getDelta(), 0.1);
       const t = clock.elapsedTime;
 
-      // フリー金魚の遊泳アニメーション
+      // フリー金魚の遊泳アニメーション(マーカーの面=XY平面上を泳ぎ、Z方向にわずかに浮き沈み)
       freeFish.forEach((f) => {
         f.invulnerable = Math.max(0, f.invulnerable - dt);
         const angle = t * f.speed + f.phase;
         f.mesh.position.set(
           f.basePos.x + Math.cos(angle) * f.radius,
-          f.basePos.y + Math.sin(t * 3 + f.phase) * 0.004,
-          f.basePos.z + Math.sin(angle) * f.radius
+          f.basePos.y + Math.sin(angle) * f.radius,
+          f.basePos.z + Math.sin(t * 3 + f.phase) * 0.004
         );
-        f.mesh.rotation.y = -angle + Math.PI / 2;
+        f.mesh.rotation.z = angle + Math.PI / 2;
         const tailMesh = f.mesh.getObjectByName('tail');
         if (tailMesh) tailMesh.rotation.y = Math.sin(t * 8 + f.phase) * 0.5;
       });
