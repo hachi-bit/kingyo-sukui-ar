@@ -20,8 +20,8 @@
     }
   </style>
 
-  <!-- Three.js本体 -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r160/three.min.js"></script>
+  <!-- Three.js本体(r150以降はグローバル版ビルドが廃止されたため、まだ存在するr149系を指定) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
 
   <!-- 8th Wall エンジン(SLAM込み・クローズドバイナリ / 商用利用OKの無償配布バイナリ) -->
   <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
@@ -82,6 +82,7 @@
 
     addLog('LOG', ['スクリプト評価開始'])
     addLog('LOG', [`UA: ${navigator.userAgent}`])
+    addLog('LOG', [window.THREE ? `THREE読み込み済み (r${THREE.REVISION})` : 'THREE未読み込み(この時点では別スクリプトのため正常)'])
     // ==== マーカー検出時のハンドラ ====
     const onImageFound = (event) => {
       const { name, position, rotation, scale } = event.detail
