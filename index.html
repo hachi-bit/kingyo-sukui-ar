@@ -575,7 +575,7 @@ function goldfishGamePipelineModule() {
   let roundActive = false;
   const caughtThisRound = {};
 
-  const CATCH_RADIUS = 0.08;     // ポイに触れたと判定する距離
+  const CATCH_RADIUS = 0.09;     // ポイに触れたと判定する距離
   const HOLD_RADIUS = 0.025;     // これより中心に近ければキープ扱い
   const ESCAPE_RADIUS = 0.058;   // これを超えたら逃げられる（紙面の縁あたり）
   const REQUIRED_HOLD = 1.1;     // 何秒キープしたら成功か
@@ -583,7 +583,10 @@ function goldfishGamePipelineModule() {
   const TILT_ACCEL = 0.05;       // 傾きが与える加速度の強さ
   const WANDER_ACCEL_BASE = 0.3; // 金魚の暴れが与える加速度の強さ
   const FRICTION_PER_SEC = 3.2;  // 摩擦の強さ(大きいほどすぐ減速する)
-  const TUB_OFFSET_FROM_MARKER = 0.35; // 桶をマーカー面からどれだけ離すか(m)。近づきすぎ対策
+  const TUB_OFFSET_FROM_MARKER = 0.55; // 桶をマーカー面からどれだけ離すか(m)。近づきすぎ対策
+  const TUB_RADIUS = 0.42;       // 桶(水面)の半径。すぐ捕まらないよう広めに
+  const FLEE_RADIUS = 0.22;      // ポイがこの距離まで近づくと金魚が逃げ始める
+  const FLEE_ACCEL = 0.5;        // 逃げる時の加速度の強さ
   const MAX_SPEED = 0.22;        // 金魚が出せる最大速度
 
   function setupPoi() {
@@ -631,14 +634,14 @@ function goldfishGamePipelineModule() {
     anchorGroup.add(tubGroup);
 
     // 水面(たらい)の見た目。マーカーの面と平行になるよう、回転は加えない
-    const waterGeo = new THREE.CircleGeometry(0.28, 40);
+    const waterGeo = new THREE.CircleGeometry(TUB_RADIUS, 40);
     const waterMat = new THREE.MeshStandardMaterial({
       color: 0x4fb0d6, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
     });
     const water = new THREE.Mesh(waterGeo, waterMat);
     tubGroup.add(water);
 
-    const rimGeo = new THREE.TorusGeometry(0.28, 0.012, 10, 40);
+    const rimGeo = new THREE.TorusGeometry(TUB_RADIUS, 0.014, 10, 40);
     const rimMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
     const rim = new THREE.Mesh(rimGeo, rimMat);
     tubGroup.add(rim);
@@ -692,10 +695,11 @@ function goldfishGamePipelineModule() {
     tubGroup.add(mesh);
     freeFish.push({
       mesh, type,
-      basePos: new THREE.Vector3((Math.random() - 0.5) * 0.35, (Math.random() - 0.5) * 0.35, 0.01),
+      basePos: new THREE.Vector3((Math.random() - 0.5) * TUB_RADIUS * 0.9, (Math.random() - 0.5) * TUB_RADIUS * 0.9, 0.01),
       phase: Math.random() * Math.PI * 2,
       speed: 0.6 + Math.random() * 0.4,
-      radius: 0.05 + Math.random() * 0.05,
+      radius: 0.06 + Math.random() * 0.08,
+      fleeing: 0,
       invulnerable: 0,
     });
   }
@@ -706,7 +710,7 @@ function goldfishGamePipelineModule() {
     freeFish.push({
       mesh, type: summonFishType,
       basePos: new THREE.Vector3(0, 0, 0.03),
-      phase: 0, speed: 0.5, radius: 0.12, invulnerable: 999999,
+      phase: 0, speed: 0.5, radius: 0.12, fleeing: 0, invulnerable: 999999,
     });
   }
 
@@ -771,7 +775,12 @@ function goldfishGamePipelineModule() {
     };
     const entry = {
       mesh, type: heldFish.type,
-      basePos: new THREE.Vector3((Math.random() - 0.5) * 0.35, (Math.random() - 0.5) * 0.35, 0.01),
+      basePos: new THREE.Vector3((Math.random() - 0.5) * TUB_RADIUS * 0.9, (Math.random() - 0.5) * TUB_RADIUS * 0.9, 0.01),
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.6 + Math.random() * 0.4,
+      radius: 0.06 + Math.random() * 0.08,
+      fleeing: 0,
+      invulnerable: 0.6,
     };
     mesh.position.copy(entry.basePos);
     freeFish.push(entry);
@@ -847,10 +856,43 @@ function goldfishGamePipelineModule() {
       const dt = Math.min(clock.getDelta(), 0.1);
       const t = clock.elapsedTime;
 
+      // ポイの位置を先に求めておく(金魚の回避判定に使う)
+      const poiWorldForFlee = new THREE.Vector3();
+      poiGroup.getWorldPosition(poiWorldForFlee);
+      const poiLocal = (tubGroup && arMode === 'catch' && roundActive)
+        ? tubGroup.worldToLocal(poiWorldForFlee.clone())
+        : null;
+
       // フリー金魚の遊泳アニメーション(マーカーの面=XY平面上を泳ぎ、Z方向にわずかに浮き沈み)
       freeFish.forEach((f) => {
         f.invulnerable = Math.max(0, f.invulnerable - dt);
-        const angle = t * f.speed + f.phase;
+
+        // ポイが近づいたら、泳ぎの中心(basePos)ごとポイと反対方向へじわじわ逃げる
+        if (poiLocal) {
+          const dx = f.basePos.x - poiLocal.x;
+          const dy = f.basePos.y - poiLocal.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < FLEE_RADIUS) {
+            f.fleeing = 0.5;
+            const push = (1 - dist / FLEE_RADIUS) * FLEE_ACCEL * dt;
+            const nx = dist > 0.001 ? dx / dist : (Math.random() - 0.5);
+            const ny = dist > 0.001 ? dy / dist : (Math.random() - 0.5);
+            f.basePos.x += nx * push;
+            f.basePos.y += ny * push;
+            // 桶の外まで逃げすぎないようクランプ
+            const mag = Math.hypot(f.basePos.x, f.basePos.y);
+            const maxMag = TUB_RADIUS * 0.85;
+            if (mag > maxMag) {
+              f.basePos.x = (f.basePos.x / mag) * maxMag;
+              f.basePos.y = (f.basePos.y / mag) * maxMag;
+            }
+          } else {
+            f.fleeing = Math.max(0, f.fleeing - dt);
+          }
+        }
+
+        const speedNow = f.speed * (f.fleeing > 0 ? 2.2 : 1); // 逃げてる間は泳ぎも速くなる
+        const angle = t * speedNow + f.phase;
         f.mesh.position.set(
           f.basePos.x + Math.cos(angle) * f.radius,
           f.basePos.y + Math.sin(angle) * f.radius,
@@ -858,7 +900,7 @@ function goldfishGamePipelineModule() {
         );
         f.mesh.rotation.z = angle + Math.PI / 2;
         const tailMesh = f.mesh.getObjectByName('tail');
-        if (tailMesh) tailMesh.rotation.y = Math.sin(t * 8 + f.phase) * 0.5;
+        if (tailMesh) tailMesh.rotation.y = Math.sin(t * (f.fleeing > 0 ? 16 : 8) + f.phase) * 0.5;
       });
 
       // stage1: ポイとの接触判定（捕獲モードのみ / 無敵時間中は除外）
