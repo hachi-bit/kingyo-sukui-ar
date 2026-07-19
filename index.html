@@ -119,7 +119,7 @@
 <!-- タイトル画面 -->
 <div id="titleScreen" class="screen">
   <h1>🎏 ARデジタル金魚すくい</h1>
-  <p>スマホを動かしてポイで金魚をすくおう。ポイに金魚が触れたら、少し待ってから傾けて中央にキープしてすくいきってね。</p>
+  <p>金魚柄のマーカーにカメラを向けて、たらいを呼び出そう。ポイに金魚が触れたら、少し待ってから傾けて中央にキープしてすくいきってね。</p>
   <div id="coinDisplayTitle">🪙 コイン: <span id="coinCountTitle">0</span></div>
   <button id="startSlamBtn" class="bigBtn">AR金魚すくいを始める</button>
   <button id="openGalleryBtn" class="subBtn">図鑑・鑑賞モード</button>
@@ -135,7 +135,7 @@
 </div>
 <div id="catchBanner"></div>
 <div id="liftBanner" class="hidden">引き上げろ！</div>
-<div id="placeHint" class="hidden">床やたらいをタップして金魚すくいスポットを置いてね</div>
+<div id="placeHint" class="hidden">マーカーにカメラを向けてね</div>
 <div id="debugPanel">
   <div id="debugLogText">ログ待機中...</div>
   <button id="debugCopyBtn">ログ全部をコピー</button>
@@ -310,7 +310,7 @@ document.getElementById('startSlamBtn').addEventListener('click', async () => {
   await requestOrientationPermission();
   showScreen(null);
   document.getElementById('hud').classList.remove('hidden');
-  document.getElementById('placeHint').textContent = '床やたらいをタップして金魚すくいスポットを置いてね';
+  document.getElementById('placeHint').textContent = 'マーカーにカメラを向けてね';
   document.getElementById('placeHint').classList.remove('hidden');
   document.getElementById('debugPanel').classList.remove('hidden');
   startArSession('catch', null);
@@ -526,8 +526,19 @@ function initEngineCheckAndStart() {
   }, 10000);
 }
 
-function onxrloaded() {
+async function onxrloaded() {
   log('エンジン一式の読み込み確認OK / モード=' + arMode);
+
+  try {
+    const targetData = await fetch('./image-targets/kingyo-marker.json').then(r => r.json());
+    XR8.XrController.configure({
+      disableWorldTracking: true, // 桶の位置はマーカー基準に一本化し、SLAMのドリフトを避ける
+      imageTargetData: [targetData],
+    });
+    log('Image Target読み込みOK: ' + targetData.name);
+  } catch (e) {
+    log('Image Target読み込みエラー: ' + e.message);
+  }
 
   XR8.addCameraPipelineModules([
     XR8.GlTextureRenderer.pipelineModule(),
@@ -603,9 +614,10 @@ function goldfishGamePipelineModule() {
     camera.add(poiGroup);
   }
 
-  function placeAnchor(position) {
+  function placeAnchor(position, quaternion) {
     anchorGroup = new THREE.Group();
     anchorGroup.position.copy(position);
+    if (quaternion) anchorGroup.quaternion.copy(quaternion);
     scene.add(anchorGroup);
 
     // 水面(たらい)の見た目
@@ -630,10 +642,21 @@ function goldfishGamePipelineModule() {
       for (let i = 0; i < 5; i++) spawnFreeFish();
       roundActive = true;
       timeLeft = ROUND_SECONDS;
-      log('たらい設置完了。ラウンド開始');
+      log('マーカー検出。たらい設置完了。ラウンド開始');
     } else if (arMode === 'summon') {
       spawnSummonFish();
-      log('たらい設置完了。召喚モード表示中');
+      log('マーカー検出。たらい設置完了。召喚モード表示中');
+    }
+  }
+
+  function updateAnchorFromDetail(detail) {
+    if (!anchorGroup || !detail) return;
+    if (detail.position) anchorGroup.position.set(detail.position.x, detail.position.y, detail.position.z);
+    if (detail.rotation) {
+      const r = detail.rotation;
+      if (typeof r.w === 'number') {
+        anchorGroup.quaternion.set(r.x, r.y, r.z, r.w);
+      }
     }
   }
 
@@ -751,20 +774,33 @@ function goldfishGamePipelineModule() {
     showScreen('resultScreen');
   }
 
-  const onTap = (e) => {
-    if (placed) return;
-    const touch = e.touches ? e.touches[0] : e;
-    const x = touch.clientX / window.innerWidth;
-    const y = touch.clientY / window.innerHeight;
-    const results = XR8.XrController.hitTest(x, y, ['FEATURE_POINT']);
-    if (results && results.length > 0) {
-      const p = results[0].position;
-      placeAnchor(new THREE.Vector3(p.x, p.y, p.z));
+  const onImageFound = ({ detail }) => {
+    log('マーカー発見(imagefound): ' + detail.name);
+    if (!placed) {
+      const q = new THREE.Quaternion();
+      if (detail.rotation && typeof detail.rotation.w === 'number') {
+        q.set(detail.rotation.x, detail.rotation.y, detail.rotation.z, detail.rotation.w);
+      }
+      placeAnchor(new THREE.Vector3(detail.position.x, detail.position.y, detail.position.z), q);
+    } else {
+      updateAnchorFromDetail(detail);
     }
+  };
+  const onImageUpdated = ({ detail }) => {
+    updateAnchorFromDetail(detail);
+  };
+  const onImageLost = ({ detail }) => {
+    log('マーカー見失い(imagelost): ' + (detail && detail.name));
+    // 最後に分かっている位置のまま維持する(急に消えるとゲーム体験を損なうため)
   };
 
   return {
     name: 'goldfishgame',
+    listeners: [
+      { event: 'reality.imagefound', process: onImageFound },
+      { event: 'reality.imageupdated', process: onImageUpdated },
+      { event: 'reality.imagelost', process: onImageLost },
+    ],
     onStart: () => {
       const xrScene = XR8.Threejs.xrScene();
       scene = xrScene.scene;
@@ -781,8 +817,7 @@ function goldfishGamePipelineModule() {
         origin: camera.position, facing: camera.quaternion,
       });
 
-      window.addEventListener('touchstart', onTap);
-      log('ゲームシーン初期化完了。タップで設置待ち');
+      log('ゲームシーン初期化完了。マーカー検出待ち');
     },
     onUpdate: () => {
       if (!placed) return;

@@ -1,0 +1,23 @@
+{
+  "imagePath": "image-targets/kingyo-marker_luminance.jpg",
+  "metadata": null,
+  "name": "kingyo-marker",
+  "type": "PLANAR",
+  "properties": {
+    "left": 0,
+    "top": 0,
+    "width": 960,
+    "height": 1280,
+    "isRotated": false,
+    "originalWidth": 960,
+    "originalHeight": 1280
+  },
+  "resources": {
+    "originalImage": "kingyo-marker_original.jpg",
+    "croppedImage": "kingyo-marker_cropped.jpg",
+    "thumbnailImage": "kingyo-marker_thumbnail.jpg",
+    "luminanceImage": "kingyo-marker_luminance.jpg"
+  },
+  "created": 1784445874993,
+  "updated": 1784445874993
+}
