@@ -587,10 +587,10 @@ function goldfishGamePipelineModule() {
   const TILT_ACCEL = 0.05;       // 傾きが与える加速度の強さ
   const WANDER_ACCEL_BASE = 0.3; // 金魚の暴れが与える加速度の強さ
   const FRICTION_PER_SEC = 3.2;  // 摩擦の強さ(大きいほどすぐ減速する)
-  const TUB_OFFSET_FROM_MARKER = 0.15; // 桶をマーカー面からどれだけ離すか(m)。射出式なので近くてOK
+  const TUB_OFFSET_FROM_MARKER = 0.08; // 桶をマーカー面からどれだけ離すか(m)。射出式なので近くてOK
   const TUB_RADIUS = 0.42;       // 桶(水面)の半径。すぐ捕まらないよう広めに
-  const FLEE_RADIUS = 0.22;      // ポイがこの距離まで近づくと金魚が逃げ始める
-  const FLEE_ACCEL = 0.5;        // 逃げる時の加速度の強さ
+  const FLEE_RADIUS = 0.22;      // 飛んできたポイがこの距離まで近づくと逃げ始める(レア個体のみ)
+  const FLEE_ACCEL = 0.22;       // 逃げる時の加速度の強さ(泳いで逃げる程度に抑える)
   const PROJECTILE_SPEED_BASE = 0.55; // ポイの飛ぶ速さ(m/s)。遅めで予測が必要
   const HIT_RADIUS = 0.09;       // 飛んでいるポイが金魚に当たったと判定する距離
   const PROJECTILE_MAX_RANGE = 1.6; // これ以上飛んで何もヒットしなければ空振り
@@ -916,24 +916,24 @@ function goldfishGamePipelineModule() {
       const dt = Math.min(clock.getDelta(), 0.1);
       const t = clock.elapsedTime;
 
-      // ポイの位置を先に求めておく(金魚の回避判定に使う)
-      const poiWorldForFlee = new THREE.Vector3();
-      poiGroup.getWorldPosition(poiWorldForFlee);
-      const poiLocal = (tubGroup && arMode === 'catch' && roundActive)
-        ? tubGroup.worldToLocal(poiWorldForFlee.clone())
+      // 飛行中のポイの位置(脅威の位置)を求めておく。手元で構えとるだけでは逃げない
+      const threatWorld = (poiState === 'flying') ? poiGroup.position : null;
+      const threatLocal = (threatWorld && tubGroup)
+        ? tubGroup.worldToLocal(threatWorld.clone())
         : null;
 
       // フリー金魚の遊泳アニメーション(マーカーの面=XY平面上を泳ぎ、Z方向にわずかに浮き沈み)
       freeFish.forEach((f) => {
         f.invulnerable = Math.max(0, f.invulnerable - dt);
 
-        // ポイが近づいたら、泳ぎの中心(basePos)ごとポイと反対方向へじわじわ逃げる
-        if (poiLocal) {
-          const dx = f.basePos.x - poiLocal.x;
-          const dy = f.basePos.y - poiLocal.y;
+        // レアリティの高い個体だけ、飛んできたポイを感知して泳いで逃げる
+        // (ワープのような急な移動ではなく、通常の泳ぎの延長として滑らかに)
+        if (threatLocal && f.type.rarity !== 'common') {
+          const dx = f.basePos.x - threatLocal.x;
+          const dy = f.basePos.y - threatLocal.y;
           const dist = Math.hypot(dx, dy);
           if (dist < FLEE_RADIUS) {
-            f.fleeing = 0.5;
+            f.fleeing = 0.6;
             const push = (1 - dist / FLEE_RADIUS) * FLEE_ACCEL * dt;
             const nx = dist > 0.001 ? dx / dist : (Math.random() - 0.5);
             const ny = dist > 0.001 ? dy / dist : (Math.random() - 0.5);
@@ -951,16 +951,16 @@ function goldfishGamePipelineModule() {
           }
         }
 
-        const speedNow = f.speed * (f.fleeing > 0 ? 2.2 : 1); // 逃げてる間は泳ぎも速くなる
+        const speedNow = f.speed * (f.fleeing > 0 ? 1.4 : 1); // 逃げてる間は少し速く泳ぐ程度に留める
         const angle = t * speedNow + f.phase;
         f.mesh.position.set(
           f.basePos.x + Math.cos(angle) * f.radius,
           f.basePos.y + Math.sin(angle) * f.radius,
           f.basePos.z + Math.sin(t * 3 + f.phase) * 0.004
         );
-        f.mesh.rotation.z = angle + Math.PI / 2;
+        f.mesh.rotation.set(Math.PI / 2, 0, angle + Math.PI / 2);
         const tailMesh = f.mesh.getObjectByName('tail');
-        if (tailMesh) tailMesh.rotation.y = Math.sin(t * (f.fleeing > 0 ? 16 : 8) + f.phase) * 0.5;
+        if (tailMesh) tailMesh.rotation.y = Math.sin(t * (f.fleeing > 0 ? 11 : 8) + f.phase) * 0.5;
       });
 
       // stage1: 射出したポイの飛行・命中・空振り処理（召喚モードでは動作しない）
