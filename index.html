@@ -71,7 +71,7 @@
     border-radius: 999px; font-size: 13px; pointer-events: none;
   }
   /* ポイ選択画面 */
-  #poiSelectScreen { gap: 10px; }
+  #poiSelectScreen { gap: 10px; background: linear-gradient(160deg, #0b3d5c, #0a1f33); }
   #poiTierList { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 320px; margin-top: 6px; }
   .poiTierCard {
     background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2);
@@ -85,7 +85,7 @@
 
   /* タイミングゲージ */
   #gaugeOverlay {
-    position: fixed; left: 50%; bottom: 8%; transform: translateX(-50%);
+    position: fixed; left: 50%; bottom: 34%; transform: translateX(-50%);
     z-index: 20; display: flex; flex-direction: column; align-items: center; gap: 10px;
     background: rgba(0,0,0,0.6); padding: 16px 20px; border-radius: 16px; width: 84%; max-width: 380px;
     box-sizing: border-box;
@@ -121,9 +121,16 @@
   #debugLogText {
     padding: 6px 8px; overflow-y: auto; white-space: pre-wrap; line-height: 1.4; flex: 1;
   }
-  #debugCopyBtn {
-    margin: 4px 6px 6px; padding: 4px 10px; font-size: 10px; border: none; border-radius: 6px;
-    background: #2a6b4a; color: #cfffe0; align-self: flex-end;
+  #debugBtnRow { display: flex; justify-content: flex-end; gap: 6px; margin: 4px 6px 6px; }
+  #debugCopyBtn, #debugHideBtn {
+    padding: 4px 10px; font-size: 10px; border: none; border-radius: 6px;
+  }
+  #debugCopyBtn { background: #2a6b4a; color: #cfffe0; }
+  #debugHideBtn { background: #6b2a2a; color: #ffd0d0; }
+  #debugShowBtn {
+    position: fixed; bottom: env(safe-area-inset-bottom, 6px); right: 8px; z-index: 50;
+    padding: 6px 12px; font-size: 11px; border: none; border-radius: 999px;
+    background: rgba(0,0,0,0.6); color: #a0ffb0;
   }
 
   /* 終了画面 */
@@ -198,8 +205,12 @@
 
 <div id="debugPanel">
   <div id="debugLogText">ログ待機中...</div>
-  <button id="debugCopyBtn">ログ全部をコピー</button>
+  <div id="debugBtnRow">
+    <button id="debugCopyBtn">ログ全部をコピー</button>
+    <button id="debugHideBtn">ログを隠す</button>
+  </div>
 </div>
+<button id="debugShowBtn" class="hidden">ログを表示</button>
 
 <!-- 結果画面 -->
 <div id="resultScreen" class="screen hidden">
@@ -332,6 +343,15 @@ document.getElementById('debugCopyBtn').addEventListener('click', () => {
   } else {
     window.prompt('これを手動で選択してコピーしてや', text);
   }
+});
+
+document.getElementById('debugHideBtn').addEventListener('click', () => {
+  document.getElementById('debugPanel').classList.add('hidden');
+  document.getElementById('debugShowBtn').classList.remove('hidden');
+});
+document.getElementById('debugShowBtn').addEventListener('click', () => {
+  document.getElementById('debugShowBtn').classList.add('hidden');
+  document.getElementById('debugPanel').classList.remove('hidden');
 });
 
 /* =========================================================
@@ -563,6 +583,17 @@ function showBanner(text) {
 /* =========================================================
    金魚メッシュ生成
 ========================================================= */
+// 魚のメッシュは元々「Z軸方向が頭、Y軸が背」の向きで作られている。
+// マーカー面(X/Y平面)を泳がせるには、まずX軸周りに90度回して
+// 「背がZ軸(マーカーの外向き)、頭が-Y軸」の姿勢に基準を合わせ直す必要がある。
+// クォータニオンで明示的に合成することで、Euler角の合成順序の曖昧さを避ける。
+const FISH_BASE_QUAT = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+const _fishSwimQuatTemp = new THREE.Quaternion();
+const _fishSwimAxisZ = new THREE.Vector3(0, 0, 1);
+function FISH_SWIM_QUAT_Z(zAngle) {
+  return _fishSwimQuatTemp.setFromAxisAngle(_fishSwimAxisZ, zAngle);
+}
+
 function createFishMesh(fishType, scale) {
   const group = new THREE.Group();
   const s = scale || 0.09;
@@ -1124,7 +1155,7 @@ function goldfishGamePipelineModule() {
           f.basePos.y + Math.sin(angle) * f.radius,
           f.basePos.z + Math.sin(t * 3 + f.phase) * 0.004
         );
-        f.mesh.rotation.set(Math.PI / 2, 0, angle + Math.PI);
+        f.mesh.quaternion.copy(FISH_SWIM_QUAT_Z(angle + Math.PI)).multiply(FISH_BASE_QUAT);
         const tailMesh = f.mesh.getObjectByName('tail');
         if (tailMesh) tailMesh.rotation.y = Math.sin(t * (f.fleeing > 0 ? 11 : 8) + f.phase) * 0.5;
       });
