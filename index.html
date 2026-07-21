@@ -6,7 +6,7 @@
 <title>ARデジタル金魚すくい</title>
 <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js" async crossorigin="anonymous" data-preload-chunks="slam"></script>
 <script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -1290,7 +1290,8 @@ function goldfishGamePipelineModule() {
    VRモード(カメラなし。ジャイロだけで見回す)
 ========================================================= */
 function startVrMode() {
-  document.getElementById('placeHint').classList.add('hidden');
+  document.getElementById('placeHint').textContent = '桶を置きたい方向にスマホを向けてタップしてね';
+  document.getElementById('placeHint').classList.remove('hidden');
 
   const canvas = document.createElement('canvas');
   canvas.id = 'vrCanvas';
@@ -1397,9 +1398,8 @@ function startVrMode() {
   scene.add(camera);
   setupPoi();
 
-  /* --- 桶(固定位置に浮かべる。マーカー等は不要) --- */
+  /* --- 桶(プレイヤーが向いた方向にタップで設置する) --- */
   const anchorGroup = new THREE.Group();
-  anchorGroup.position.set(0, -0.35, -1.1);
   scene.add(anchorGroup);
   const tubGroup = new THREE.Group();
   tubGroup.position.set(0, 0, TUB_OFFSET_FROM_MARKER);
@@ -1411,6 +1411,24 @@ function startVrMode() {
   const rimGeo = new THREE.TorusGeometry(TUB_RADIUS, 0.014, 10, 40);
   const rimMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
   tubGroup.add(new THREE.Mesh(rimGeo, rimMat));
+
+  const VR_TUB_DISTANCE = 1.1;  // 桶を置く距離(m)
+  const VR_TUB_DROP = 0.9;      // 目線からどれだけ下(=地面想定)に置くか(m)
+  let vrPlaced = false;
+
+  function placeVrTub() {
+    if (vrPlaced) return;
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    // 地面の高さは常にワールドの「真下」方向に固定する(スマホの傾き次第で桶が浮いたりしないように)
+    anchorGroup.position.set(forward.x * VR_TUB_DISTANCE, -VR_TUB_DROP, forward.z * VR_TUB_DISTANCE);
+    // 桶の面(法線)がワールドの真上を向くようにする(重力に対して水平)
+    anchorGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0));
+    vrPlaced = true;
+    document.getElementById('placeHint').classList.add('hidden');
+    for (let i = 0; i < 5; i++) spawnFreeFish();
+    roundActive = true;
+    log('VR: 桶を設置。ラウンド開始');
+  }
 
   /* --- 金魚 --- */
   let freeFish = [];
@@ -1431,10 +1449,10 @@ function startVrMode() {
       invulnerable: 0,
     });
   }
-  for (let i = 0; i < 5; i++) spawnFreeFish();
 
   /* --- 発射・命中・空振り --- */
   function tryShoot() {
+    if (!vrPlaced) { placeVrTub(); return; }
     if (poiState !== 'idle' || heldFish || !roundActive) return;
     const worldPos = new THREE.Vector3();
     poiGroup.getWorldPosition(worldPos);
@@ -1635,9 +1653,8 @@ function startVrMode() {
     showScreen('resultScreen');
   }
 
-  roundActive = true;
   let timeLeft = ROUND_SECONDS;
-  log('VRモード開始。ラウンド開始');
+  log('VRシーン構築完了。設置タップ待ち');
 
   /* --- メインループ --- */
   const clock = new THREE.Clock();
