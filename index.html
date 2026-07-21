@@ -799,6 +799,7 @@ function goldfishGamePipelineModule() {
 
   let timeLeft = ROUND_SECONDS;
   let roundActive = false;
+  let timeUpPending = false; // 捕獲中に時間切れになった場合、決着がつくまで待つためのフラグ
   const caughtThisRound = {};
 
   function setupPoi() {
@@ -847,7 +848,7 @@ function goldfishGamePipelineModule() {
   }
 
   function tryShoot() {
-    if (poiState !== 'idle' || !placed || !roundActive || heldFish) return;
+    if (poiState !== 'idle' || !placed || !roundActive || heldFish || timeUpPending || timeLeft <= 0) return;
     const worldPos = new THREE.Vector3();
     poiGroup.getWorldPosition(worldPos);
     const worldQuat = new THREE.Quaternion();
@@ -1153,7 +1154,7 @@ function goldfishGamePipelineModule() {
     heldFish.x += deltaGamma * COUNTER_GAIN * dt * 60;
     if (style === 'both') {
       const deltaBetaTilt = latestOrientation.beta - heldFish.baselineBeta;
-      heldFish.y += deltaBetaTilt * COUNTER_GAIN * dt * 60;
+      heldFish.y -= deltaBetaTilt * COUNTER_GAIN * dt * 60;
     }
 
     const mag = Math.hypot(heldFish.x, heldFish.y);
@@ -1191,23 +1192,29 @@ function goldfishGamePipelineModule() {
 
   // 電撃中、金魚の周りにパチパチと稲妻の線を明滅させる
   function spawnLightningEffect(fishMesh) {
-    if (Math.random() > 0.5) return; // 毎フレームは出さず、チカチカする間隔にする
-    const points = [];
-    const segments = 5;
-    for (let i = 0; i <= segments; i++) {
-      const p = i / segments;
-      points.push(new THREE.Vector3(
-        (Math.random() - 0.5) * 0.03,
-        (p - 0.5) * 0.05,
-        (Math.random() - 0.5) * 0.01
-      ));
+    if (Math.random() > 0.6) return; // チカチカする間隔にする
+    const group = new THREE.Group();
+    const boltCount = 4; // 複数本まとめて描くことで太く・密に見せる
+    for (let b = 0; b < boltCount; b++) {
+      const offsetX = (Math.random() - 0.5) * 0.006;
+      const points = [];
+      const segments = 6;
+      for (let i = 0; i <= segments; i++) {
+        const p = i / segments;
+        points.push(new THREE.Vector3(
+          offsetX + (Math.random() - 0.5) * 0.045, // 魚の全長を覆う範囲まで広げる
+          (p - 0.5) * 0.05,
+          (Math.random() - 0.5) * 0.02
+        ));
+      }
+      const geo = new THREE.BufferGeometry().setFromPoints(points);
+      const mat = new THREE.LineBasicMaterial({ color: 0xa8f0ff, transparent: true, opacity: 0.95, depthTest: false });
+      const bolt = new THREE.Line(geo, mat);
+      bolt.renderOrder = 998;
+      group.add(bolt);
     }
-    const geo = new THREE.BufferGeometry().setFromPoints(points);
-    const mat = new THREE.LineBasicMaterial({ color: 0x7fe0ff, transparent: true, opacity: 0.95, depthTest: false });
-    const bolt = new THREE.Line(geo, mat);
-    bolt.renderOrder = 998;
-    fishMesh.add(bolt);
-    setTimeout(() => { fishMesh.remove(bolt); }, 70);
+    fishMesh.add(group);
+    setTimeout(() => { fishMesh.remove(group); }, 80);
   }
 
   function useShock() {
@@ -1475,7 +1482,17 @@ function goldfishGamePipelineModule() {
       if (arMode === 'catch' && roundActive) {
         timeLeft -= dt;
         document.getElementById('timerDisplay').textContent = Math.max(0, Math.ceil(timeLeft));
-        if (timeLeft <= 0) endRound();
+        if (timeLeft <= 0) {
+          if (heldFish) {
+            timeUpPending = true; // 釣ってる最中なら、決着がつくまでラウンド終了を待つ
+          } else {
+            endRound();
+          }
+        }
+      }
+      if (timeUpPending && !heldFish) {
+        timeUpPending = false;
+        endRound();
       }
     },
   };
@@ -1652,7 +1669,7 @@ function startVrMode() {
   /* --- 発射・命中・空振り --- */
   function tryShoot() {
     if (!vrPlaced) { placeVrTub(); return; }
-    if (poiState !== 'idle' || heldFish || !roundActive) return;
+    if (poiState !== 'idle' || heldFish || !roundActive || timeUpPending || timeLeft <= 0) return;
     const worldPos = new THREE.Vector3();
     poiGroup.getWorldPosition(worldPos);
     const worldQuat = new THREE.Quaternion();
@@ -1863,7 +1880,7 @@ function startVrMode() {
     heldFish.x += deltaGamma * COUNTER_GAIN * dt * 60;
     if (style === 'both') {
       const deltaBetaTilt = latestOrientation.beta - heldFish.baselineBeta;
-      heldFish.y += deltaBetaTilt * COUNTER_GAIN * dt * 60;
+      heldFish.y -= deltaBetaTilt * COUNTER_GAIN * dt * 60;
     }
 
     const mag = Math.hypot(heldFish.x, heldFish.y);
@@ -1899,23 +1916,29 @@ function startVrMode() {
   }
 
   function spawnLightningEffect(fishMesh) {
-    if (Math.random() > 0.5) return;
-    const points = [];
-    const segments = 5;
-    for (let i = 0; i <= segments; i++) {
-      const p = i / segments;
-      points.push(new THREE.Vector3(
-        (Math.random() - 0.5) * 0.03,
-        (p - 0.5) * 0.05,
-        (Math.random() - 0.5) * 0.01
-      ));
+    if (Math.random() > 0.6) return;
+    const group = new THREE.Group();
+    const boltCount = 4;
+    for (let b = 0; b < boltCount; b++) {
+      const offsetX = (Math.random() - 0.5) * 0.006;
+      const points = [];
+      const segments = 6;
+      for (let i = 0; i <= segments; i++) {
+        const p = i / segments;
+        points.push(new THREE.Vector3(
+          offsetX + (Math.random() - 0.5) * 0.045,
+          (p - 0.5) * 0.05,
+          (Math.random() - 0.5) * 0.02
+        ));
+      }
+      const geo = new THREE.BufferGeometry().setFromPoints(points);
+      const mat = new THREE.LineBasicMaterial({ color: 0xa8f0ff, transparent: true, opacity: 0.95, depthTest: false });
+      const bolt = new THREE.Line(geo, mat);
+      bolt.renderOrder = 998;
+      group.add(bolt);
     }
-    const geo = new THREE.BufferGeometry().setFromPoints(points);
-    const mat = new THREE.LineBasicMaterial({ color: 0x7fe0ff, transparent: true, opacity: 0.95, depthTest: false });
-    const bolt = new THREE.Line(geo, mat);
-    bolt.renderOrder = 998;
-    fishMesh.add(bolt);
-    setTimeout(() => { fishMesh.remove(bolt); }, 70);
+    fishMesh.add(group);
+    setTimeout(() => { fishMesh.remove(group); }, 80);
   }
 
   function useShock() {
@@ -2001,6 +2024,7 @@ function startVrMode() {
   }
 
   let timeLeft = ROUND_SECONDS;
+  let timeUpPending = false;
   log('VRシーン構築完了。設置タップ待ち');
 
   /* --- メインループ --- */
@@ -2083,7 +2107,17 @@ function startVrMode() {
     if (roundActive) {
       timeLeft -= dt;
       document.getElementById('timerDisplay').textContent = Math.max(0, Math.ceil(timeLeft));
-      if (timeLeft <= 0) endRound();
+      if (timeLeft <= 0) {
+        if (heldFish) {
+          timeUpPending = true;
+        } else {
+          endRound();
+        }
+      }
+    }
+    if (timeUpPending && !heldFish) {
+      timeUpPending = false;
+      endRound();
     }
 
     renderer.render(scene, camera);
