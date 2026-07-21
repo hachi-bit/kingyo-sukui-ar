@@ -1073,6 +1073,7 @@ function goldfishGamePipelineModule() {
     heldFish.baselineGamma = latestOrientation.gamma;
     heldFish.holdTimer = 0;
     heldFish.shockFreezeTimer = 0;
+    heldFish.mesh.scale.setScalar(0.5); // ポイの上では小さく見せる(でないとすぐ縁からはみ出てしまう)
     const worldPos = new THREE.Vector3();
     heldFish.mesh.getWorldPosition(worldPos);
     spawnSplash(worldPos, 6, 0.9); // 着地のしぶき
@@ -1092,7 +1093,7 @@ function goldfishGamePipelineModule() {
     }
     // スマホを左右に傾けた量で押し戻す
     const deltaGamma = latestOrientation.gamma - heldFish.baselineGamma;
-    heldFish.x -= deltaGamma * COUNTER_GAIN * dt * 60;
+    heldFish.x += deltaGamma * COUNTER_GAIN * dt * 60;
     heldFish.x = Math.max(-ESCAPE_EDGE * 1.4, Math.min(ESCAPE_EDGE * 1.4, heldFish.x));
     heldFish.mesh.position.set(heldFish.x, heldFish.y, -0.004);
     updateReelLine();
@@ -1715,6 +1716,7 @@ function startVrMode() {
     heldFish.baselineGamma = latestOrientation.gamma;
     heldFish.holdTimer = 0;
     heldFish.shockFreezeTimer = 0;
+    heldFish.mesh.scale.setScalar(0.5);
     const worldPos = new THREE.Vector3();
     heldFish.mesh.getWorldPosition(worldPos);
     spawnSplash(worldPos, 6, 0.9);
@@ -1733,7 +1735,7 @@ function startVrMode() {
       heldFish.x += heldFish.escapeDir * ESCAPE_DRIFT_SPEED * dt;
     }
     const deltaGamma = latestOrientation.gamma - heldFish.baselineGamma;
-    heldFish.x -= deltaGamma * COUNTER_GAIN * dt * 60;
+    heldFish.x += deltaGamma * COUNTER_GAIN * dt * 60;
     heldFish.x = Math.max(-ESCAPE_EDGE * 1.4, Math.min(ESCAPE_EDGE * 1.4, heldFish.x));
     heldFish.mesh.position.set(heldFish.x, heldFish.y, -0.004);
     updateReelLine();
