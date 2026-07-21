@@ -745,6 +745,7 @@ function goldfishGamePipelineModule() {
   let placed = false;
   let freeFish = [];            // {mesh, basePos, phase, speed, radius, invulnerable}
   let heldFish = null;          // 捕獲中の1匹 {mesh, type, holdTimer, balance:{x,y}, baseline, buffed}
+  let reelLine = null;          // ポイと金魚をつなぐ釣り糸
   const clock = new THREE.Clock();
 
   let timeLeft = ROUND_SECONDS;
@@ -920,6 +921,19 @@ function goldfishGamePipelineModule() {
     });
   }
 
+  function updateReelLine() {
+    if (!heldFish || !reelLine) return;
+    reelLine.visible = true;
+    const poiWorld = new THREE.Vector3();
+    poiGroup.getWorldPosition(poiWorld);
+    const fishWorld = new THREE.Vector3();
+    heldFish.mesh.getWorldPosition(fishWorld);
+    const posAttr = reelLine.geometry.attributes.position;
+    posAttr.setXYZ(0, poiWorld.x, poiWorld.y, poiWorld.z);
+    posAttr.setXYZ(1, fishWorld.x, fishWorld.y, fishWorld.z);
+    posAttr.needsUpdate = true;
+  }
+
   function tryGrab(fishEntry) {
     // カメラの位置を桶のローカル座標に変換し、「プレイヤーと反対方向」を逃走軸とする
     const camWorldPos = new THREE.Vector3();
@@ -944,6 +958,7 @@ function goldfishGamePipelineModule() {
     heldFish = { mesh: fishEntry.mesh, type: fishEntry.type, farPoint, nearPoint, progress: 0 };
     freeFish = freeFish.filter(f => f !== fishEntry);
     startReel(fishEntry.type);
+    updateReelLine();
   }
 
   function catchSuccess() {
@@ -953,6 +968,7 @@ function goldfishGamePipelineModule() {
     caughtThisRound[type.id] = (caughtThisRound[type.id] || 0) + 1;
     showBanner(`GET! ${type.name} (+${type.value}🪙)`);
     heldFish = null;
+    if (reelLine) reelLine.visible = false;
     if (roundActive) setTimeout(spawnFreeFish, 500);
   }
 
@@ -970,6 +986,7 @@ function goldfishGamePipelineModule() {
     } else {
       showBanner('にげられた！');
     }
+    if (reelLine) reelLine.visible = false;
     mesh.scale.setScalar(0.001);
     let t = 0;
     const grow = () => {
@@ -1063,6 +1080,11 @@ function goldfishGamePipelineModule() {
     // 進捗に応じて金魚を桶の中で奥⇔手前に動かす(浮き上がらせない)
     if (heldFish) {
       heldFish.mesh.position.lerpVectors(heldFish.farPoint, heldFish.nearPoint, reel.progress);
+      // 抵抗して暴れている感じを出すための小刻みな揺れ
+      const t = clock.elapsedTime;
+      heldFish.mesh.position.x += Math.sin(t * 26) * 0.006;
+      heldFish.mesh.position.y += Math.cos(t * 31) * 0.006;
+      updateReelLine();
     }
 
     if (reel.progress >= 1) {
@@ -1177,6 +1199,13 @@ function goldfishGamePipelineModule() {
       const dir = new THREE.DirectionalLight(0xffffff, 0.6);
       dir.position.set(0.5, 1, 0.3);
       scene.add(dir);
+
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+      const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+      reelLine = new THREE.Line(lineGeo, lineMat);
+      reelLine.visible = false;
+      reelLine.frustumCulled = false;
+      scene.add(reelLine);
 
       setupPoi();
 
@@ -1400,6 +1429,7 @@ function startVrMode() {
 
   /* --- 桶(プレイヤーが向いた方向にタップで設置する) --- */
   const anchorGroup = new THREE.Group();
+  anchorGroup.visible = false; // タップして設置するまでは見えないようにする
   scene.add(anchorGroup);
   const tubGroup = new THREE.Group();
   tubGroup.position.set(0, 0, TUB_OFFSET_FROM_MARKER);
@@ -1423,6 +1453,7 @@ function startVrMode() {
     anchorGroup.position.set(forward.x * VR_TUB_DISTANCE, -VR_TUB_DROP, forward.z * VR_TUB_DISTANCE);
     // 桶の面(法線)がワールドの真上を向くようにする(重力に対して水平)
     anchorGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0));
+    anchorGroup.visible = true;
     vrPlaced = true;
     document.getElementById('placeHint').classList.add('hidden');
     for (let i = 0; i < 5; i++) spawnFreeFish();
@@ -1486,6 +1517,26 @@ function startVrMode() {
   /* --- 捕獲・あおりリール --- */
   const caughtThisRound = {};
 
+  /* --- ポイと金魚をつなぐ釣り糸 --- */
+  const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+  const reelLine = new THREE.Line(lineGeo, lineMat);
+  reelLine.visible = false;
+  reelLine.frustumCulled = false;
+  scene.add(reelLine);
+  function updateReelLine() {
+    if (!heldFish) { reelLine.visible = false; return; }
+    reelLine.visible = true;
+    const poiWorld = new THREE.Vector3();
+    poiGroup.getWorldPosition(poiWorld);
+    const fishWorld = new THREE.Vector3();
+    heldFish.mesh.getWorldPosition(fishWorld);
+    const posAttr = reelLine.geometry.attributes.position;
+    posAttr.setXYZ(0, poiWorld.x, poiWorld.y, poiWorld.z);
+    posAttr.setXYZ(1, fishWorld.x, fishWorld.y, fishWorld.z);
+    posAttr.needsUpdate = true;
+  }
+
   function tryGrab(fishEntry) {
     const camWorldPos = new THREE.Vector3();
     camera.getWorldPosition(camWorldPos);
@@ -1504,6 +1555,7 @@ function startVrMode() {
     heldFish = { mesh: fishEntry.mesh, type: fishEntry.type, farPoint, nearPoint };
     freeFish = freeFish.filter(f => f !== fishEntry);
     startReel(fishEntry.type);
+    updateReelLine();
   }
 
   function catchSuccess() {
@@ -1513,6 +1565,7 @@ function startVrMode() {
     caughtThisRound[type.id] = (caughtThisRound[type.id] || 0) + 1;
     showBanner(`GET! ${type.name} (+${type.value}🪙)`);
     heldFish = null;
+    reelLine.visible = false;
     if (roundActive) setTimeout(spawnFreeFish, 500);
   }
 
@@ -1526,6 +1579,7 @@ function startVrMode() {
     } else {
       showBanner('にげられた！');
     }
+    reelLine.visible = false;
     mesh.scale.setScalar(0.001);
     let t = 0;
     const grow = () => {
@@ -1594,7 +1648,14 @@ function startVrMode() {
       reel.progress = Math.max(0, reel.progress - REGEN_PER_SEC * dt);
     }
 
-    if (heldFish) heldFish.mesh.position.lerpVectors(heldFish.farPoint, heldFish.nearPoint, reel.progress);
+    if (heldFish) {
+      heldFish.mesh.position.lerpVectors(heldFish.farPoint, heldFish.nearPoint, reel.progress);
+      // 抵抗して暴れている感じを出すための小刻みな揺れ
+      const t = clock.elapsedTime;
+      heldFish.mesh.position.x += Math.sin(t * 26) * 0.006;
+      heldFish.mesh.position.y += Math.cos(t * 31) * 0.006;
+      updateReelLine();
+    }
     if (reel.progress >= 1) resolveReel();
   }
 
