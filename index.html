@@ -738,6 +738,8 @@ function goldfishGamePipelineModule() {
   let poiState = 'idle';        // 'idle'(手元) | 'flying'(飛行中) | 'reeling'(空振りで巻き戻り中)
   const poiVelocity = new THREE.Vector3();
   let poiTraveledDist = 0;
+  let poiMaxRangeThisShot = PROJECTILE_MAX_RANGE;
+  let splashDoneThisShot = false;
   const poiReelFrom = new THREE.Vector3();
   let poiReelTimer = 0;
   let anchorGroup = null;       // マーカーの位置・向きをそのまま反映するアンカー
@@ -814,9 +816,16 @@ function goldfishGamePipelineModule() {
     poiGroup.position.copy(worldPos);
     poiGroup.quaternion.copy(worldQuat);
 
+    // 桶までの実際の距離を基準に、そこを少し過ぎたら空振り判定を出す
+    // (固定の遠い距離のままだと、判定が出るまで無駄に長く飛び続けてしまうため)
+    const tubWorldPos = new THREE.Vector3();
+    tubGroup.getWorldPosition(tubWorldPos);
+    poiMaxRangeThisShot = worldPos.distanceTo(tubWorldPos) + 0.35;
+
     const speed = PROJECTILE_SPEED_BASE * selectedPoiTier.speedMul;
     poiVelocity.copy(dir).multiplyScalar(speed);
     poiTraveledDist = 0;
+    splashDoneThisShot = false;
     poiState = 'flying';
     log('ポイを射出！');
   }
@@ -919,6 +928,36 @@ function goldfishGamePipelineModule() {
       basePos: new THREE.Vector3(0, 0, 0.03),
       phase: 0, speed: 0.5, radius: 0.12, fleeing: 0, invulnerable: 999999,
     });
+  }
+
+  // 水しぶきの粒を飛び散らせる演出(ポイの着水・金魚が逃げる時などに使う)
+  function spawnSplash(position, count, scale) {
+    count = count || 6;
+    scale = scale || 1;
+    const group = new THREE.Group();
+    group.position.copy(position);
+    for (let i = 0; i < count; i++) {
+      const size = (0.008 + Math.random() * 0.012) * scale;
+      const mat = new THREE.MeshBasicMaterial({ color: 0xdff3ff, transparent: true, opacity: 0.9 });
+      const drop = new THREE.Mesh(new THREE.SphereGeometry(size, 6, 6), mat);
+      const angle = Math.random() * Math.PI * 2;
+      const speed = (0.12 + Math.random() * 0.22) * scale;
+      drop.userData.vel = new THREE.Vector3(Math.cos(angle) * speed, Math.random() * 0.25 * scale + 0.05, Math.sin(angle) * speed * 0.6);
+      group.add(drop);
+    }
+    scene.add(group);
+    let life = 0;
+    function stepSplash() {
+      life += 0.016;
+      group.children.forEach((drop) => {
+        drop.position.addScaledVector(drop.userData.vel, 0.016);
+        drop.userData.vel.y -= 0.5 * 0.016;
+        drop.material.opacity = Math.max(0, 0.9 - life * 1.6);
+      });
+      if (life < 0.55) requestAnimationFrame(stepSplash);
+      else scene.remove(group);
+    }
+    stepSplash();
   }
 
   function updateReelLine() {
@@ -1201,10 +1240,11 @@ function goldfishGamePipelineModule() {
       scene.add(dir);
 
       const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-      const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+      const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false });
       reelLine = new THREE.Line(lineGeo, lineMat);
       reelLine.visible = false;
       reelLine.frustumCulled = false;
+      reelLine.renderOrder = 999; // 水面などの半透明物より必ず手前に描く
       scene.add(reelLine);
 
       setupPoi();
@@ -1264,6 +1304,11 @@ function goldfishGamePipelineModule() {
           } else {
             f.fleeing = Math.max(0, f.fleeing - dt);
           }
+          if (f.fleeing > 0 && Math.random() < dt * 6) {
+            const fishWorldForSplash = new THREE.Vector3();
+            f.mesh.getWorldPosition(fishWorldForSplash);
+            spawnSplash(fishWorldForSplash, 4, 0.7);
+          }
         }
 
         const speedNow = f.speed * (f.fleeing > 0 ? 1.4 : 1); // 逃げてる間は少し速く泳ぐ程度に留める
@@ -1284,6 +1329,15 @@ function goldfishGamePipelineModule() {
         poiGroup.position.add(step);
         poiTraveledDist += step.length();
 
+        // ポイが水面を通過した瞬間に一度だけしぶきを出す
+        if (!splashDoneThisShot) {
+          const poiLocalInTub = tubGroup.worldToLocal(poiGroup.position.clone());
+          if (poiLocalInTub.z <= 0.02) {
+            spawnSplash(poiGroup.position.clone(), 8, 1);
+            splashDoneThisShot = true;
+          }
+        }
+
         const poiWorld = poiGroup.position;
         let hitFish = null;
         for (const f of freeFish) {
@@ -1296,7 +1350,7 @@ function goldfishGamePipelineModule() {
         if (hitFish) {
           reelPoiHome();
           tryGrab(hitFish);
-        } else if (poiTraveledDist > PROJECTILE_MAX_RANGE) {
+        } else if (poiTraveledDist > poiMaxRangeThisShot) {
           showBanner('空振り…');
           reelPoiHome();
         }
@@ -1389,6 +1443,8 @@ function startVrMode() {
   let poiState = 'idle';
   const poiVelocity = new THREE.Vector3();
   let poiTraveledDist = 0;
+  let poiMaxRangeThisShot = PROJECTILE_MAX_RANGE;
+  let splashDoneThisShot = false;
 
   function setupPoi() {
     poiGroup = new THREE.Group();
@@ -1498,9 +1554,14 @@ function startVrMode() {
     poiGroup.position.copy(worldPos);
     poiGroup.quaternion.copy(worldQuat);
 
+    const tubWorldPos = new THREE.Vector3();
+    tubGroup.getWorldPosition(tubWorldPos);
+    poiMaxRangeThisShot = worldPos.distanceTo(tubWorldPos) + 0.35;
+
     const speed = PROJECTILE_SPEED_BASE * selectedPoiTier.speedMul;
     poiVelocity.copy(dir).multiplyScalar(speed);
     poiTraveledDist = 0;
+    splashDoneThisShot = false;
     poiState = 'flying';
   }
   window.addEventListener('touchstart', tryShoot);
@@ -1519,11 +1580,43 @@ function startVrMode() {
 
   /* --- ポイと金魚をつなぐ釣り糸 --- */
   const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false });
   const reelLine = new THREE.Line(lineGeo, lineMat);
   reelLine.visible = false;
   reelLine.frustumCulled = false;
+  reelLine.renderOrder = 999;
   scene.add(reelLine);
+
+  // 水しぶきの粒を飛び散らせる演出(ポイの着水・金魚が逃げる時などに使う)
+  function spawnSplash(position, count, scale) {
+    count = count || 6;
+    scale = scale || 1;
+    const group = new THREE.Group();
+    group.position.copy(position);
+    for (let i = 0; i < count; i++) {
+      const size = (0.008 + Math.random() * 0.012) * scale;
+      const mat = new THREE.MeshBasicMaterial({ color: 0xdff3ff, transparent: true, opacity: 0.9 });
+      const drop = new THREE.Mesh(new THREE.SphereGeometry(size, 6, 6), mat);
+      const angle = Math.random() * Math.PI * 2;
+      const speed = (0.12 + Math.random() * 0.22) * scale;
+      drop.userData.vel = new THREE.Vector3(Math.cos(angle) * speed, Math.random() * 0.25 * scale + 0.05, Math.sin(angle) * speed * 0.6);
+      group.add(drop);
+    }
+    scene.add(group);
+    let life = 0;
+    function stepSplash() {
+      life += 0.016;
+      group.children.forEach((drop) => {
+        drop.position.addScaledVector(drop.userData.vel, 0.016);
+        drop.userData.vel.y -= 0.5 * 0.016;
+        drop.material.opacity = Math.max(0, 0.9 - life * 1.6);
+      });
+      if (life < 0.55) requestAnimationFrame(stepSplash);
+      else scene.remove(group);
+    }
+    stepSplash();
+  }
+
   function updateReelLine() {
     if (!heldFish) { reelLine.visible = false; return; }
     reelLine.visible = true;
@@ -1747,6 +1840,11 @@ function startVrMode() {
         } else {
           f.fleeing = Math.max(0, f.fleeing - dt);
         }
+        if (f.fleeing > 0 && Math.random() < dt * 6) {
+          const fishWorldForSplash = new THREE.Vector3();
+          f.mesh.getWorldPosition(fishWorldForSplash);
+          spawnSplash(fishWorldForSplash, 4, 0.7);
+        }
       }
       const speedNow = f.speed * (f.fleeing > 0 ? 1.4 : 1);
       const angle = t * speedNow + f.phase;
@@ -1764,6 +1862,15 @@ function startVrMode() {
       const step = poiVelocity.clone().multiplyScalar(dt);
       poiGroup.position.add(step);
       poiTraveledDist += step.length();
+
+      if (!splashDoneThisShot) {
+        const poiLocalInTub = tubGroup.worldToLocal(poiGroup.position.clone());
+        if (poiLocalInTub.z <= 0.02) {
+          spawnSplash(poiGroup.position.clone(), 8, 1);
+          splashDoneThisShot = true;
+        }
+      }
+
       const poiWorld = poiGroup.position;
       let hitFish = null;
       for (const f of freeFish) {
@@ -1773,7 +1880,7 @@ function startVrMode() {
         if (fishWorld.distanceTo(poiWorld) < HIT_RADIUS * selectedPoiTier.hitRadiusMul) { hitFish = f; break; }
       }
       if (hitFish) { reelPoiHome(); tryGrab(hitFish); }
-      else if (poiTraveledDist > PROJECTILE_MAX_RANGE) { showBanner('空振り…'); reelPoiHome(); }
+      else if (poiTraveledDist > poiMaxRangeThisShot) { showBanner('空振り…'); reelPoiHome(); }
     }
 
     tickReel(dt);
