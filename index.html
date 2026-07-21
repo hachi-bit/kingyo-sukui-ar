@@ -615,20 +615,42 @@ function createFishMesh(fishType, scale) {
     color: fishType.color,
     emissive: fishType.emissive ? fishType.color : 0x000000,
     emissiveIntensity: fishType.emissive ? 0.5 : 0,
-    roughness: 0.4, metalness: 0.1,
+    roughness: 0.45, metalness: 0.08,
+    flatShading: true, // セグメント数を減らした面をカクカク見せてローポリ感を出す
   });
 
-  const body = new THREE.Mesh(new THREE.SphereGeometry(s, 16, 12), bodyMat);
-  body.scale.set(1.0, 0.7, 1.6);
+  // 体: セグメント数を減らして面取りされたローポリ感のある楕円体に
+  const body = new THREE.Mesh(new THREE.SphereGeometry(s, 8, 6), bodyMat);
+  body.scale.set(0.85, 0.65, 1.7);
   group.add(body);
 
-  const tail = new THREE.Mesh(new THREE.ConeGeometry(s * 0.9, s * 1.3, 8), bodyMat);
-  tail.rotation.z = Math.PI / 2;
-  tail.position.set(0, 0, -s * 1.5);
+  // 尾びれ: 円錐を平たく潰して扇形のヒレにする。
+  // 以前はZ軸で回転させていたため90度近くズレていたので、正しくX軸で-90度回して後方(-Z)を向かせる。
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(s * 0.85, s * 1.4, 4, 1), bodyMat);
+  tail.scale.set(1, 0.22, 1);
+  tail.rotation.x = -Math.PI / 2;
+  tail.position.set(0, 0, -s * 1.55);
   tail.name = 'tail';
   group.add(tail);
 
-  const eyeGeo = new THREE.SphereGeometry(s * 0.12, 8, 8);
+  // 背びれ
+  const dorsalFin = new THREE.Mesh(new THREE.ConeGeometry(s * 0.32, s * 0.55, 3, 1), bodyMat);
+  dorsalFin.rotation.x = Math.PI;
+  dorsalFin.position.set(0, s * 0.55, s * 0.05);
+  group.add(dorsalFin);
+
+  // 胸びれ(左右)
+  const sideFinGeo = new THREE.ConeGeometry(s * 0.22, s * 0.4, 3, 1);
+  const finL = new THREE.Mesh(sideFinGeo, bodyMat);
+  finL.rotation.z = Math.PI / 2.2;
+  finL.position.set(s * 0.55, -s * 0.05, s * 0.35);
+  group.add(finL);
+  const finR = finL.clone();
+  finR.rotation.z = -Math.PI / 2.2;
+  finR.position.x *= -1;
+  group.add(finR);
+
+  const eyeGeo = new THREE.SphereGeometry(s * 0.11, 6, 6);
   const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
   const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
   eyeL.position.set(s * 0.55, s * 0.15, s * 0.9);
@@ -725,6 +747,7 @@ const PROJECTILE_MAX_RANGE = 1.6; // これ以上飛んで何もヒットしな�
 const REEL_DURATION = 0.35;    // 空振り時に手元へ巻き戻る時間(秒)
 const POI_HOME_LOCAL = { x: 0, y: 0.06, z: -0.3 }; // 手元(カメラ基準)でのポイの定位置
 const REEL_SHOCK_COST = 20;
+const ENTER_DURATION = 0.7; // 掴んだ位置から桶の奥まで泳いで逃げる猶予(秒)
 const PULL_STEP = 0.16;          // 1回のあおりで進む量(進捗0〜1のうち)
 const REGEN_PER_SEC = 0.10;      // 何もしない/失敗している間に戻る速さ
 const JERK_VELOCITY_THRESHOLD = 110; // これ以上の角速度(度/秒)で「あおり」と判定
@@ -988,17 +1011,39 @@ function goldfishGamePipelineModule() {
     const nearPoint = new THREE.Vector3(
       towardPlayer.x * TUB_RADIUS * 0.7, towardPlayer.y * TUB_RADIUS * 0.7, fishEntry.basePos.z
     );
+    const hookPos = fishEntry.mesh.position.clone(); // 掴まれた瞬間の位置(ここから奥まで泳いで逃げる)
 
-    fishEntry.mesh.position.copy(farPoint);
     // 逃走方向(farPoint方向)を向かせる
     const fleeAngle = Math.atan2(-towardPlayer.y, -towardPlayer.x) - Math.PI / 2;
     fishEntry.mesh.quaternion.copy(FISH_SWIM_QUAT_Z(fleeAngle + Math.PI)).multiply(FISH_BASE_QUAT);
 
-    heldFish = { mesh: fishEntry.mesh, type: fishEntry.type, farPoint, nearPoint, progress: 0 };
+    heldFish = {
+      mesh: fishEntry.mesh, type: fishEntry.type, farPoint, nearPoint, progress: 0,
+      phase: 'entering', enterFrom: hookPos, enterTimer: 0,
+    };
     freeFish = freeFish.filter(f => f !== fishEntry);
-    startReel(fishEntry.type);
     updateReelLine();
   }
+
+  function tickEntering(dt) {
+    if (!heldFish || heldFish.phase !== 'entering') return;
+    heldFish.enterTimer += dt;
+    const p = Math.min(1, heldFish.enterTimer / ENTER_DURATION);
+    const wobble = Math.sin(p * Math.PI * 6) * 0.05 * (1 - p); // 左右に暴れながら、だんだん収まる
+    const base = new THREE.Vector3().lerpVectors(heldFish.enterFrom, heldFish.farPoint, p);
+    heldFish.mesh.position.set(base.x + wobble, base.y, base.z);
+    updateReelLine();
+    if (Math.random() < dt * 8) {
+      const worldPos = new THREE.Vector3();
+      heldFish.mesh.getWorldPosition(worldPos);
+      spawnSplash(worldPos, 3, 0.5);
+    }
+    if (p >= 1) {
+      heldFish.phase = 'reeling';
+      startReel(heldFish.type);
+    }
+  }
+
 
   function catchSuccess() {
     const type = heldFish.type;
@@ -1356,7 +1401,8 @@ function goldfishGamePipelineModule() {
         }
       }
 
-      // stage2: 命中後のあおりリール更新
+      // stage2: 掴んだ直後に泳いで逃げるフェーズ → あおりリール更新
+      tickEntering(dt);
       tickReel(dt);
 
       // タイマー
@@ -1640,15 +1686,36 @@ function startVrMode() {
 
     const farPoint = new THREE.Vector3(towardPlayer.x * -TUB_RADIUS * 0.8, towardPlayer.y * -TUB_RADIUS * 0.8, fishEntry.basePos.z);
     const nearPoint = new THREE.Vector3(towardPlayer.x * TUB_RADIUS * 0.7, towardPlayer.y * TUB_RADIUS * 0.7, fishEntry.basePos.z);
+    const hookPos = fishEntry.mesh.position.clone();
 
-    fishEntry.mesh.position.copy(farPoint);
     const fleeAngle = Math.atan2(-towardPlayer.y, -towardPlayer.x) - Math.PI / 2;
     fishEntry.mesh.quaternion.copy(FISH_SWIM_QUAT_Z(fleeAngle + Math.PI)).multiply(FISH_BASE_QUAT);
 
-    heldFish = { mesh: fishEntry.mesh, type: fishEntry.type, farPoint, nearPoint };
+    heldFish = {
+      mesh: fishEntry.mesh, type: fishEntry.type, farPoint, nearPoint,
+      phase: 'entering', enterFrom: hookPos, enterTimer: 0,
+    };
     freeFish = freeFish.filter(f => f !== fishEntry);
-    startReel(fishEntry.type);
     updateReelLine();
+  }
+
+  function tickEntering(dt) {
+    if (!heldFish || heldFish.phase !== 'entering') return;
+    heldFish.enterTimer += dt;
+    const p = Math.min(1, heldFish.enterTimer / ENTER_DURATION);
+    const wobble = Math.sin(p * Math.PI * 6) * 0.05 * (1 - p);
+    const base = new THREE.Vector3().lerpVectors(heldFish.enterFrom, heldFish.farPoint, p);
+    heldFish.mesh.position.set(base.x + wobble, base.y, base.z);
+    updateReelLine();
+    if (Math.random() < dt * 8) {
+      const worldPos = new THREE.Vector3();
+      heldFish.mesh.getWorldPosition(worldPos);
+      spawnSplash(worldPos, 3, 0.5);
+    }
+    if (p >= 1) {
+      heldFish.phase = 'reeling';
+      startReel(heldFish.type);
+    }
   }
 
   function catchSuccess() {
@@ -1883,6 +1950,7 @@ function startVrMode() {
       else if (poiTraveledDist > poiMaxRangeThisShot) { showBanner('空振り…'); reelPoiHome(); }
     }
 
+    tickEntering(dt);
     tickReel(dt);
 
     if (roundActive) {
