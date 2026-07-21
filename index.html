@@ -91,10 +91,6 @@
     box-sizing: border-box;
   }
   #gaugeTitle { color: #fff; font-size: 13px; font-weight: bold; text-align: center; }
-  #comboLabel {
-    color: #ffe066; font-size: 15px; font-weight: 900;
-    text-shadow: 0 2px 6px rgba(0,0,0,0.7);
-  }
   #gaugeShockBtn {
     padding: 8px 20px; font-size: 12px; border: none; border-radius: 999px;
     background: #3a6bdb; color: #fff;
@@ -188,10 +184,9 @@
 <div id="catchBanner"></div>
 <div id="placeHint" class="hidden">マーカーにカメラを向けてね</div>
 
-<!-- 命中後のあおりリールUI -->
+<!-- 命中後のポイ上せめぎ合いUI -->
 <div id="gaugeOverlay" class="hidden">
-  <div id="gaugeTitle">スマホを素早くあおって引き寄せろ！</div>
-  <div id="comboLabel" class="hidden">コンボ ×<span id="comboCount">0</span></div>
+  <div id="gaugeTitle">金魚がポイから逃げようとしてる！</div>
   <button id="gaugeShockBtn">⚡電撃を使う (<span id="gaugeShockCost">20</span>🪙)</button>
 </div>
 <div id="reelFeedback"></div>
@@ -250,7 +245,6 @@ const FISH_TYPES = [
   { id: 'ranchu',   name: 'らんちゅう', rarity: 'uncommon', color: 0xffcf4a, wildness: 1.3,  value: 20, desc: '背びれがなく、貫禄のある泳ぎ方。' },
   { id: 'ayakashi', name: 'あやかし金魚', rarity: 'rare',    color: 0x66ffe0, wildness: 1.7,  value: 50, desc: '祭りの夜にだけ現れるという幻の金魚。', emissive: true },
 ];
-const RARITY_ESCAPE_CHANCE = { common: 0.05, uncommon: 0.18, rare: 0.35 }; // 引き寄せきっても逃げられる確率
 const RARITY_WEIGHT = { common: 60, uncommon: 30, rare: 10 };
 
 /* =========================================================
@@ -740,7 +734,7 @@ const ROUND_SECONDS = 70;
 const TUB_OFFSET_FROM_MARKER = 0.08; // 桶をマーカー面からどれだけ離すか(m)。射出式なので近くてOK
 const TUB_RADIUS = 0.42;       // 桶(水面)の半径。すぐ捕まらないよう広めに
 const FLEE_RADIUS = 0.22;      // 飛んできたポイがこの距離まで近づくと逃げ始める(レア個体のみ)
-const FLEE_ACCEL = 0.22;       // 逃げる時の加速度の強さ(泳いで逃げる程度に抑える)
+const FLEE_ACCEL = 0.13;       // 逃げる時の加速度の強さ(泳いで逃げる程度に抑える、ワープ感を減らすため弱める)
 const PROJECTILE_SPEED_BASE = 0.55; // ポイの飛ぶ速さ(m/s)。遅めで予測が必要
 const HIT_RADIUS = 0.09;       // 飛んでいるポイが金魚に当たったと判定する距離
 const PROJECTILE_MAX_RANGE = 1.6; // これ以上飛んで何もヒットしなければ空振り
@@ -748,12 +742,14 @@ const REEL_DURATION = 0.35;    // 空振り時に手元へ巻き戻る時間(秒
 const POI_HOME_LOCAL = { x: 0, y: 0.06, z: -0.3 }; // 手元(カメラ基準)でのポイの定位置
 const REEL_SHOCK_COST = 20;
 const ENTER_DURATION = 0.7; // 掴んだ位置から桶の奥まで泳いで逃げる猶予(秒)
-const PULL_STEP = 0.16;          // 1回のあおりで進む量(進捗0〜1のうち)
-const REGEN_PER_SEC = 0.10;      // 何もしない/失敗している間に戻る速さ
-const JERK_VELOCITY_THRESHOLD = 110; // これ以上の角速度(度/秒)で「あおり」と判定
-const JERK_COOLDOWN = 0.28;      // あおり判定のクールダウン(秒)
-const COMBO_RESET_IDLE = 1.2;    // これだけ間が空いたらコンボが切れる
-const COMBO_BONUS_PER_STACK = 0.12; // コンボ1につき引き寄せ量が増える割合
+const LEAP_DURATION = 0.4;  // 桶の奥からポイの上へ飛び乗るまでの時間(秒)
+const LEAP_HEIGHT = 0.05;   // 飛び乗る時の跳ねる高さ
+const POI_PAPER_RADIUS = 0.065; // ポイの紙面の半径(setupPoiの値と合わせる)
+const ESCAPE_EDGE = 0.05;   // ここを超えたらポイから落ちて逃げられる
+const ESCAPE_DRIFT_SPEED = 0.045; // 金魚が縁に向かって逃げようとする速さ
+const COUNTER_GAIN = 0.00035; // スマホの左右の傾きが押し戻す強さ
+const ONPOI_HOLD_REQUIRED = 1.4; // 中央付近をこれだけキープできたら捕獲成功
+const SHOCK_FREEZE_DURATION = 2.2; // 電撃で金魚の動きを止める時間(秒)
 
 function goldfishGamePipelineModule() {
   let scene, camera;
@@ -1039,11 +1035,107 @@ function goldfishGamePipelineModule() {
       spawnSplash(worldPos, 3, 0.5);
     }
     if (p >= 1) {
-      heldFish.phase = 'reeling';
-      startReel(heldFish.type);
+      startLeap();
     }
   }
 
+  function startLeap() {
+    // 桶の中(ワールド固定)からポイの上(カメラに追従)へ持ち替える
+    const worldPos = new THREE.Vector3();
+    heldFish.mesh.getWorldPosition(worldPos);
+    spawnSplash(worldPos, 6, 0.8); // 飛び出す瞬間のしぶき
+    tubGroup.remove(heldFish.mesh);
+    poiGroup.add(heldFish.mesh);
+    heldFish.leapFrom = poiGroup.worldToLocal(worldPos.clone());
+    heldFish.phase = 'leaping';
+    heldFish.leapTimer = 0;
+  }
+
+  function tickLeap(dt) {
+    if (!heldFish || heldFish.phase !== 'leaping') return;
+    heldFish.leapTimer += dt;
+    const p = Math.min(1, heldFish.leapTimer / LEAP_DURATION);
+    const arc = Math.sin(p * Math.PI) * LEAP_HEIGHT;
+    heldFish.mesh.position.set(
+      heldFish.leapFrom.x * (1 - p),
+      heldFish.leapFrom.y * (1 - p) + arc,
+      -0.004
+    );
+    updateReelLine();
+    if (p >= 1) startOnPoi();
+  }
+
+  function startOnPoi() {
+    heldFish.phase = 'onpoi';
+    heldFish.escapeDir = Math.random() < 0.5 ? -1 : 1; // 左右どっちに逃げようとするかランダム
+    heldFish.x = 0;
+    heldFish.y = (Math.random() - 0.5) * 0.02;
+    heldFish.baselineGamma = latestOrientation.gamma;
+    heldFish.holdTimer = 0;
+    heldFish.shockFreezeTimer = 0;
+    const worldPos = new THREE.Vector3();
+    heldFish.mesh.getWorldPosition(worldPos);
+    spawnSplash(worldPos, 6, 0.9); // 着地のしぶき
+    updateReelShockButton();
+    document.getElementById('gaugeTitle').textContent =
+      heldFish.escapeDir > 0 ? '右に逃げようとしてる！スマホを右に傾けて押し戻せ！' : '左に逃げようとしてる！スマホを左に傾けて押し戻せ！';
+    document.getElementById('gaugeOverlay').classList.remove('hidden');
+  }
+
+  function tickOnPoi(dt) {
+    if (!heldFish || heldFish.phase !== 'onpoi') return;
+
+    if (heldFish.shockFreezeTimer > 0) {
+      heldFish.shockFreezeTimer -= dt;
+    } else {
+      heldFish.x += heldFish.escapeDir * ESCAPE_DRIFT_SPEED * dt;
+    }
+    // スマホを左右に傾けた量で押し戻す
+    const deltaGamma = latestOrientation.gamma - heldFish.baselineGamma;
+    heldFish.x -= deltaGamma * COUNTER_GAIN * dt * 60;
+    heldFish.x = Math.max(-ESCAPE_EDGE * 1.4, Math.min(ESCAPE_EDGE * 1.4, heldFish.x));
+    heldFish.mesh.position.set(heldFish.x, heldFish.y, -0.004);
+    updateReelLine();
+
+    if (Math.abs(heldFish.x) < ESCAPE_EDGE * 0.35) {
+      heldFish.holdTimer += dt;
+    } else {
+      heldFish.holdTimer = Math.max(0, heldFish.holdTimer - dt * 0.5);
+    }
+
+    if (heldFish.holdTimer >= ONPOI_HOLD_REQUIRED) {
+      document.getElementById('gaugeOverlay').classList.add('hidden');
+      catchSuccess();
+    } else if (Math.abs(heldFish.x) > ESCAPE_EDGE) {
+      document.getElementById('gaugeOverlay').classList.add('hidden');
+      catchFail();
+    }
+  }
+
+  function useShock() {
+    if (!heldFish || heldFish.phase !== 'onpoi' || heldFish.shockFreezeTimer > 0) return;
+    if (!spendCoins(REEL_SHOCK_COST)) return;
+    refreshCoinDisplays();
+    heldFish.shockFreezeTimer = SHOCK_FREEZE_DURATION;
+    showReelFeedback('⚡電撃！しばらく大人しくなった', 'good');
+    log('電撃使用！');
+  }
+
+  function updateReelShockButton() {
+    const btn = document.getElementById('gaugeShockBtn');
+    if (!btn) return;
+    btn.innerHTML = `⚡電撃を使う (<span id="gaugeShockCost">${REEL_SHOCK_COST}</span>🪙)`;
+  }
+
+  function showReelFeedback(text, cls) {
+    const el = document.getElementById('reelFeedback');
+    el.textContent = text;
+    el.style.color = cls === 'bad' ? '#ff8a80' : '#7cffb0';
+    el.classList.remove('show');
+    void el.offsetWidth; // reflowさせてアニメーションを再トリガー
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 500);
+  }
 
   function catchSuccess() {
     const type = heldFish.type;
@@ -1051,26 +1143,18 @@ function goldfishGamePipelineModule() {
     registerCatch(type);
     caughtThisRound[type.id] = (caughtThisRound[type.id] || 0) + 1;
     showBanner(`GET! ${type.name} (+${type.value}🪙)`);
+    poiGroup.remove(heldFish.mesh); // 画面に残り続けないよう、確実に3D空間から取り除く
     heldFish = null;
     if (reelLine) reelLine.visible = false;
     if (roundActive) setTimeout(spawnFreeFish, 500);
   }
 
-  function catchFail(consolationRatio) {
+  function catchFail() {
     const mesh = heldFish.mesh;
-    const type = heldFish.type;
-    if (consolationRatio) {
-      const consolation = Math.round(type.value * consolationRatio);
-      if (consolation > 0) {
-        addCoins(consolation);
-        showBanner(`にげられた…(+${consolation}🪙)`);
-      } else {
-        showBanner('にげられた！');
-      }
-    } else {
-      showBanner('にげられた！');
-    }
+    showBanner('にげられた！');
     if (reelLine) reelLine.visible = false;
+    poiGroup.remove(mesh); // ポイの上から桶へ戻す
+    tubGroup.add(mesh);
     mesh.scale.setScalar(0.001);
     let t = 0;
     const grow = () => {
@@ -1091,124 +1175,6 @@ function goldfishGamePipelineModule() {
     freeFish.push(entry);
     grow();
     heldFish = null;
-  }
-
-  /* --- あおりリール --- */
-  const reel = {
-    active: false, progress: 0, combo: 0, comboIdleTimer: 0, shockUsed: false,
-    difficulty: 1,
-  };
-  let prevBetaForJerk = null;
-  let jerkCooldownTimer = 0;
-
-  function startReel(type) {
-    reel.active = true;
-    reel.progress = 0;
-    reel.combo = 0;
-    reel.comboIdleTimer = 0;
-    reel.shockUsed = false;
-    reel.difficulty = type.wildness || 1;
-    prevBetaForJerk = null;
-    jerkCooldownTimer = 0;
-    updateReelShockButton();
-    document.getElementById('comboLabel').classList.add('hidden');
-    document.getElementById('gaugeOverlay').classList.remove('hidden');
-  }
-
-  function showReelFeedback(text, cls) {
-    const el = document.getElementById('reelFeedback');
-    el.textContent = text;
-    el.style.color = cls === 'bad' ? '#ff8a80' : '#7cffb0';
-    el.classList.remove('show');
-    void el.offsetWidth; // reflowさせてアニメーションを再トリガー
-    el.classList.add('show');
-    setTimeout(() => el.classList.remove('show'), 500);
-  }
-
-  function tickReel(dt) {
-    if (!reel.active) { prevBetaForJerk = null; return; }
-    jerkCooldownTimer = Math.max(0, jerkCooldownTimer - dt);
-
-    // ジャイロの前後の傾き(beta)の変化速度から「あおり動作」を検知する
-    let jerked = false;
-    if (prevBetaForJerk !== null && jerkCooldownTimer <= 0) {
-      const deltaBeta = latestOrientation.beta - prevBetaForJerk;
-      const velocity = Math.abs(deltaBeta) / Math.max(dt, 0.001);
-      if (velocity > JERK_VELOCITY_THRESHOLD) {
-        jerked = true;
-        jerkCooldownTimer = JERK_COOLDOWN;
-      }
-    }
-    prevBetaForJerk = latestOrientation.beta;
-
-    if (jerked) {
-      reel.combo++;
-      reel.comboIdleTimer = 0;
-      const bonus = 1 + Math.min(reel.combo - 1, 5) * COMBO_BONUS_PER_STACK;
-      const gain = (PULL_STEP / reel.difficulty) * bonus;
-      reel.progress = Math.min(1, reel.progress + gain);
-      showReelFeedback(`ぐいっ！+${Math.round(gain * 100)}%`, 'good');
-      if (reel.combo >= 2) {
-        document.getElementById('comboCount').textContent = reel.combo;
-        document.getElementById('comboLabel').classList.remove('hidden');
-      }
-    } else {
-      reel.comboIdleTimer += dt;
-      if (reel.comboIdleTimer > COMBO_RESET_IDLE && reel.combo > 0) {
-        reel.combo = 0;
-        document.getElementById('comboLabel').classList.add('hidden');
-      }
-      reel.progress = Math.max(0, reel.progress - REGEN_PER_SEC * dt);
-    }
-
-    // 進捗に応じて金魚を桶の中で奥⇔手前に動かす(浮き上がらせない)
-    if (heldFish) {
-      heldFish.mesh.position.lerpVectors(heldFish.farPoint, heldFish.nearPoint, reel.progress);
-      // 抵抗して暴れている感じを出すための小刻みな揺れ
-      const t = clock.elapsedTime;
-      heldFish.mesh.position.x += Math.sin(t * 26) * 0.006;
-      heldFish.mesh.position.y += Math.cos(t * 31) * 0.006;
-      updateReelLine();
-    }
-
-    if (reel.progress >= 1) {
-      resolveReel();
-    }
-  }
-
-  function useShock() {
-    if (!reel.active || reel.shockUsed) return;
-    if (!spendCoins(REEL_SHOCK_COST)) return;
-    refreshCoinDisplays();
-    reel.shockUsed = true;
-    updateReelShockButton();
-    log('電撃使用！');
-    showReelFeedback('⚡電撃！', 'good');
-  }
-
-  function updateReelShockButton() {
-    const btn = document.getElementById('gaugeShockBtn');
-    if (!btn) return;
-    btn.disabled = reel.shockUsed;
-    btn.innerHTML = reel.shockUsed
-      ? '⚡電撃発動中'
-      : `⚡電撃を使う (<span id="gaugeShockCost">${REEL_SHOCK_COST}</span>🪙)`;
-  }
-
-  function resolveReel() {
-    reel.active = false;
-    document.getElementById('gaugeOverlay').classList.add('hidden');
-    document.getElementById('comboLabel').classList.add('hidden');
-
-    const type = heldFish.type;
-    let escapeChance = RARITY_ESCAPE_CHANCE[type.rarity] || 0;
-    if (reel.shockUsed) escapeChance *= 0.4; // 電撃を使っていれば最後の抵抗も抑えられる
-
-    if (Math.random() < escapeChance) {
-      catchFail(0.4); // 頑張って引き寄せたのに逃げられた場合はコインの一部を慰めに渡す
-    } else {
-      catchSuccess();
-    }
   }
 
   function endRound() {
@@ -1401,9 +1367,10 @@ function goldfishGamePipelineModule() {
         }
       }
 
-      // stage2: 掴んだ直後に泳いで逃げるフェーズ → あおりリール更新
+      // stage2: 泳いで逃げる → ポイに飛び乗る → 左右のせめぎ合い
       tickEntering(dt);
-      tickReel(dt);
+      tickLeap(dt);
+      tickOnPoi(dt);
 
       // タイマー
       if (arMode === 'catch' && roundActive) {
@@ -1712,138 +1679,93 @@ function startVrMode() {
       heldFish.mesh.getWorldPosition(worldPos);
       spawnSplash(worldPos, 3, 0.5);
     }
-    if (p >= 1) {
-      heldFish.phase = 'reeling';
-      startReel(heldFish.type);
-    }
+    if (p >= 1) startLeap();
   }
 
-  function catchSuccess() {
-    const type = heldFish.type;
-    addCoins(type.value);
-    registerCatch(type);
-    caughtThisRound[type.id] = (caughtThisRound[type.id] || 0) + 1;
-    showBanner(`GET! ${type.name} (+${type.value}🪙)`);
-    heldFish = null;
-    reelLine.visible = false;
-    if (roundActive) setTimeout(spawnFreeFish, 500);
+  function startLeap() {
+    const worldPos = new THREE.Vector3();
+    heldFish.mesh.getWorldPosition(worldPos);
+    spawnSplash(worldPos, 6, 0.8);
+    tubGroup.remove(heldFish.mesh);
+    poiGroup.add(heldFish.mesh);
+    heldFish.leapFrom = poiGroup.worldToLocal(worldPos.clone());
+    heldFish.phase = 'leaping';
+    heldFish.leapTimer = 0;
   }
 
-  function catchFail(consolationRatio) {
-    const mesh = heldFish.mesh;
-    const type = heldFish.type;
-    if (consolationRatio) {
-      const consolation = Math.round(type.value * consolationRatio);
-      if (consolation > 0) { addCoins(consolation); showBanner(`にげられた…(+${consolation}🪙)`); }
-      else showBanner('にげられた！');
-    } else {
-      showBanner('にげられた！');
-    }
-    reelLine.visible = false;
-    mesh.scale.setScalar(0.001);
-    let t = 0;
-    const grow = () => {
-      t += 0.05;
-      mesh.scale.setScalar(Math.min(1, t));
-      if (t < 1) requestAnimationFrame(grow);
-    };
-    const entry = {
-      mesh, type,
-      basePos: new THREE.Vector3((Math.random() - 0.5) * TUB_RADIUS * 0.9, (Math.random() - 0.5) * TUB_RADIUS * 0.9, 0.01),
-      phase: Math.random() * Math.PI * 2, speed: 0.6 + Math.random() * 0.4,
-      radius: 0.06 + Math.random() * 0.08, fleeing: 0, invulnerable: 0.6,
-    };
-    mesh.position.copy(entry.basePos);
-    freeFish.push(entry);
-    grow();
-    heldFish = null;
+  function tickLeap(dt) {
+    if (!heldFish || heldFish.phase !== 'leaping') return;
+    heldFish.leapTimer += dt;
+    const p = Math.min(1, heldFish.leapTimer / LEAP_DURATION);
+    const arc = Math.sin(p * Math.PI) * LEAP_HEIGHT;
+    heldFish.mesh.position.set(
+      heldFish.leapFrom.x * (1 - p),
+      heldFish.leapFrom.y * (1 - p) + arc,
+      -0.004
+    );
+    updateReelLine();
+    if (p >= 1) startOnPoi();
   }
 
-  const reel = { active: false, progress: 0, combo: 0, comboIdleTimer: 0, shockUsed: false, difficulty: 1 };
-  let prevBetaForJerk = null;
-  let jerkCooldownTimer = 0;
-
-  function startReel(type) {
-    reel.active = true;
-    reel.progress = 0;
-    reel.combo = 0;
-    reel.comboIdleTimer = 0;
-    reel.shockUsed = false;
-    reel.difficulty = type.wildness || 1;
-    prevBetaForJerk = null;
-    jerkCooldownTimer = 0;
+  function startOnPoi() {
+    heldFish.phase = 'onpoi';
+    heldFish.escapeDir = Math.random() < 0.5 ? -1 : 1;
+    heldFish.x = 0;
+    heldFish.y = (Math.random() - 0.5) * 0.02;
+    heldFish.baselineGamma = latestOrientation.gamma;
+    heldFish.holdTimer = 0;
+    heldFish.shockFreezeTimer = 0;
+    const worldPos = new THREE.Vector3();
+    heldFish.mesh.getWorldPosition(worldPos);
+    spawnSplash(worldPos, 6, 0.9);
     updateReelShockButton();
-    document.getElementById('comboLabel').classList.add('hidden');
+    document.getElementById('gaugeTitle').textContent =
+      heldFish.escapeDir > 0 ? '右に逃げようとしてる！スマホを右に傾けて押し戻せ！' : '左に逃げようとしてる！スマホを左に傾けて押し戻せ！';
     document.getElementById('gaugeOverlay').classList.remove('hidden');
   }
 
-  function tickReel(dt) {
-    if (!reel.active) { prevBetaForJerk = null; return; }
-    jerkCooldownTimer = Math.max(0, jerkCooldownTimer - dt);
-    let jerked = false;
-    if (prevBetaForJerk !== null && jerkCooldownTimer <= 0) {
-      const deltaBeta = latestOrientation.beta - prevBetaForJerk;
-      const velocity = Math.abs(deltaBeta) / Math.max(dt, 0.001);
-      if (velocity > JERK_VELOCITY_THRESHOLD) { jerked = true; jerkCooldownTimer = JERK_COOLDOWN; }
-    }
-    prevBetaForJerk = latestOrientation.beta;
+  function tickOnPoi(dt) {
+    if (!heldFish || heldFish.phase !== 'onpoi') return;
 
-    if (jerked) {
-      reel.combo++;
-      reel.comboIdleTimer = 0;
-      const bonus = 1 + Math.min(reel.combo - 1, 5) * COMBO_BONUS_PER_STACK;
-      const gain = (PULL_STEP / reel.difficulty) * bonus;
-      reel.progress = Math.min(1, reel.progress + gain);
-      showReelFeedback(`ぐいっ！+${Math.round(gain * 100)}%`, 'good');
-      if (reel.combo >= 2) {
-        document.getElementById('comboCount').textContent = reel.combo;
-        document.getElementById('comboLabel').classList.remove('hidden');
-      }
+    if (heldFish.shockFreezeTimer > 0) {
+      heldFish.shockFreezeTimer -= dt;
     } else {
-      reel.comboIdleTimer += dt;
-      if (reel.comboIdleTimer > COMBO_RESET_IDLE && reel.combo > 0) {
-        reel.combo = 0;
-        document.getElementById('comboLabel').classList.add('hidden');
-      }
-      reel.progress = Math.max(0, reel.progress - REGEN_PER_SEC * dt);
+      heldFish.x += heldFish.escapeDir * ESCAPE_DRIFT_SPEED * dt;
+    }
+    const deltaGamma = latestOrientation.gamma - heldFish.baselineGamma;
+    heldFish.x -= deltaGamma * COUNTER_GAIN * dt * 60;
+    heldFish.x = Math.max(-ESCAPE_EDGE * 1.4, Math.min(ESCAPE_EDGE * 1.4, heldFish.x));
+    heldFish.mesh.position.set(heldFish.x, heldFish.y, -0.004);
+    updateReelLine();
+
+    if (Math.abs(heldFish.x) < ESCAPE_EDGE * 0.35) {
+      heldFish.holdTimer += dt;
+    } else {
+      heldFish.holdTimer = Math.max(0, heldFish.holdTimer - dt * 0.5);
     }
 
-    if (heldFish) {
-      heldFish.mesh.position.lerpVectors(heldFish.farPoint, heldFish.nearPoint, reel.progress);
-      // 抵抗して暴れている感じを出すための小刻みな揺れ
-      const t = clock.elapsedTime;
-      heldFish.mesh.position.x += Math.sin(t * 26) * 0.006;
-      heldFish.mesh.position.y += Math.cos(t * 31) * 0.006;
-      updateReelLine();
+    if (heldFish.holdTimer >= ONPOI_HOLD_REQUIRED) {
+      document.getElementById('gaugeOverlay').classList.add('hidden');
+      catchSuccess();
+    } else if (Math.abs(heldFish.x) > ESCAPE_EDGE) {
+      document.getElementById('gaugeOverlay').classList.add('hidden');
+      catchFail();
     }
-    if (reel.progress >= 1) resolveReel();
   }
 
   function useShock() {
-    if (!reel.active || reel.shockUsed) return;
+    if (!heldFish || heldFish.phase !== 'onpoi' || heldFish.shockFreezeTimer > 0) return;
     if (!spendCoins(REEL_SHOCK_COST)) return;
     refreshCoinDisplays();
-    reel.shockUsed = true;
-    updateReelShockButton();
-    showReelFeedback('⚡電撃！', 'good');
+    heldFish.shockFreezeTimer = SHOCK_FREEZE_DURATION;
+    showReelFeedback('⚡電撃！しばらく大人しくなった', 'good');
+    log('電撃使用！');
   }
   document.getElementById('gaugeShockBtn').addEventListener('click', (e) => { e.stopPropagation(); useShock(); });
 
   function updateReelShockButton() {
     const btn = document.getElementById('gaugeShockBtn');
-    btn.disabled = reel.shockUsed;
-    btn.innerHTML = reel.shockUsed ? '⚡電撃発動中' : `⚡電撃を使う (<span id="gaugeShockCost">${REEL_SHOCK_COST}</span>🪙)`;
-  }
-
-  function resolveReel() {
-    reel.active = false;
-    document.getElementById('gaugeOverlay').classList.add('hidden');
-    document.getElementById('comboLabel').classList.add('hidden');
-    const type = heldFish.type;
-    let escapeChance = RARITY_ESCAPE_CHANCE[type.rarity] || 0;
-    if (reel.shockUsed) escapeChance *= 0.4;
-    if (Math.random() < escapeChance) catchFail(0.4);
-    else catchSuccess();
+    btn.innerHTML = `⚡電撃を使う (<span id="gaugeShockCost">${REEL_SHOCK_COST}</span>🪙)`;
   }
 
   function showReelFeedback(text, cls) {
@@ -1855,6 +1777,44 @@ function startVrMode() {
     el.classList.add('show');
     setTimeout(() => el.classList.remove('show'), 500);
   }
+
+  function catchSuccess() {
+    const type = heldFish.type;
+    addCoins(type.value);
+    registerCatch(type);
+    caughtThisRound[type.id] = (caughtThisRound[type.id] || 0) + 1;
+    showBanner(`GET! ${type.name} (+${type.value}🪙)`);
+    poiGroup.remove(heldFish.mesh);
+    heldFish = null;
+    reelLine.visible = false;
+    if (roundActive) setTimeout(spawnFreeFish, 500);
+  }
+
+  function catchFail() {
+    const mesh = heldFish.mesh;
+    showBanner('にげられた！');
+    reelLine.visible = false;
+    poiGroup.remove(mesh);
+    tubGroup.add(mesh);
+    mesh.scale.setScalar(0.001);
+    let t = 0;
+    const grow = () => {
+      t += 0.05;
+      mesh.scale.setScalar(Math.min(1, t));
+      if (t < 1) requestAnimationFrame(grow);
+    };
+    const entry = {
+      mesh, type: heldFish.type,
+      basePos: new THREE.Vector3((Math.random() - 0.5) * TUB_RADIUS * 0.9, (Math.random() - 0.5) * TUB_RADIUS * 0.9, 0.01),
+      phase: Math.random() * Math.PI * 2, speed: 0.6 + Math.random() * 0.4,
+      radius: 0.06 + Math.random() * 0.08, fleeing: 0, invulnerable: 0.6,
+    };
+    mesh.position.copy(entry.basePos);
+    freeFish.push(entry);
+    grow();
+    heldFish = null;
+  }
+
 
   /* --- ラウンド終了 --- */
   function endRound() {
@@ -1951,7 +1911,8 @@ function startVrMode() {
     }
 
     tickEntering(dt);
-    tickReel(dt);
+    tickLeap(dt);
+    tickOnPoi(dt);
 
     if (roundActive) {
       timeLeft -= dt;
